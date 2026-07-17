@@ -6,7 +6,14 @@ import { Pool } from "pg";
 import type { Env } from "../config/env";
 
 export function createPool(config: Env): Pool {
-  return new Pool({ connectionString: config.DATABASE_URL, max: 10 });
+  return new Pool({
+    connectionString: config.DATABASE_URL,
+    max: 10,
+    // Bound both hang points so an unresponsive DB yields 503 instead of blocking
+    // /health forever (load balancers/orchestrators depend on a timely answer).
+    connectionTimeoutMillis: 5_000,
+    query_timeout: 5_000,
+  });
 }
 
 /** Round-trips a trivial query. Rejects if the database is unreachable. */
