@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# dev-kit commit-msg hook: strip AI co-author / attribution trailers so history
+# reads as authored solely by the committer. Runs on every commit.
+set -uo pipefail
+
+MSG_FILE="${1:-}"
+[ -f "$MSG_FILE" ] || exit 0
+
+# Delete: "Co-Authored-By: … Claude/Anthropic …", "Generated with … Claude …",
+# and the 🤖 generation line. Case-insensitive on the key, no GNU-only flags.
+# Patterns are anchored to the real attribution formats so ordinary prose that
+# merely mentions Claude is never touched.
+sed -i.bak \
+  -e '/^[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]laude/d' \
+  -e '/^[Cc]o-[Aa]uthored-[Bb]y:.*[Aa]nthropic/d' \
+  -e '/[Gg]enerated with \[Claude/d' \
+  -e '/^🤖 Generated with/d' \
+  "$MSG_FILE"
+rm -f "$MSG_FILE.bak"
+
+exit 0

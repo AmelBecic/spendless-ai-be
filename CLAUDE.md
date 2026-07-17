@@ -21,6 +21,9 @@
 - TypeScript, ESM, small focused modules.
 - Match existing code style; keep comment density consistent with surrounding code.
 - Prefer clarity over cleverness.
+- **Commit messages carry no AI/co-author attribution** (no `Co-Authored-By: Claude`, no
+  "Generated with Claude" line). History reads as authored solely by the committer — enforced by
+  the `commit-msg` hook, so don't add such trailers.
 
 ## Ticket context
 - Source of truth for requirements is the linked **Jira** ticket. Reference the ticket key in the branch and PR title.
