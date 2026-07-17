@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -14,11 +14,18 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "@types/pg": "^8.20.0",
     "eslint": "^9.39.5",
     "prettier": "^3.9.5",
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fastify": "^5.10.0",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
   }
 }
