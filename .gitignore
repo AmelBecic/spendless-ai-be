@@ -1,0 +1,19 @@
+# secrets & env
+.env
+.env.*
+!.env.example
+
+# deps & build
+node_modules/
+dist/
+.next/
+coverage/
+
+# os / editor
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# claude: keep the shared allowlist + config + skills, ignore per-machine one-offs
+.claude/settings.local.json

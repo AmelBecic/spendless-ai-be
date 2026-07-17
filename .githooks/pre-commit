@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# dev-kit pre-commit gate: secrets → lint → typecheck.
+# Bypass in a real emergency with:  git commit --no-verify  (avoid)
+set -uo pipefail
+
+fail() { printf "\033[31m✗ pre-commit: %s\033[0m\n" "$1"; exit 1; }
+ok()   { printf "\033[32m✓ %s\033[0m\n" "$1"; }
+
+# 1. Secret scan (staged changes only) — hard block
+# gitleaks 8.30+ uses `git --staged` (the old `protect` command was removed).
+if command -v gitleaks >/dev/null 2>&1; then
+  if gitleaks git --staged --no-banner --redact 2>/dev/null; then
+    ok "no secrets in staged changes"
+  else
+    fail "gitleaks found a potential secret — remove it or add to .gitleaks.toml allowlist"
+  fi
+else
+  printf "\033[33m! gitleaks not installed — skipping secret scan (run ~/dev-kit/setup.sh)\033[0m\n"
+fi
+
+# 2. Lint + typecheck — only if defined AND deps are installed
+if [ -f package.json ] && [ -d node_modules ]; then
+  has() { node -e "process.exit(require('./package.json').scripts?.['$1']?0:1)" 2>/dev/null; }
+  if has lint;      then npm run -s lint      || fail "lint failed";      ok "lint"; fi
+  if has typecheck; then npm run -s typecheck || fail "typecheck failed"; ok "typecheck"; fi
+elif [ -f package.json ]; then
+  printf "\033[33m! node_modules missing — skipping lint/typecheck (run npm install)\033[0m\n"
+fi
+
+ok "pre-commit passed"
