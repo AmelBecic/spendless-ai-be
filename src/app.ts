@@ -18,6 +18,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // Every error leaves as { error: { code, message } }.
   app.setErrorHandler((error: FastifyError, _req, reply) => {
     if (error instanceof AppError) {
+      // Server-side failures keep a record of the underlying cause for diagnosis.
+      if (error.statusCode >= 500) app.log.error({ err: error }, error.code);
       const body: ErrorBody = { error: { code: error.code, message: error.message } };
       return reply.status(error.statusCode).send(body);
     }

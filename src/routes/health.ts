@@ -10,8 +10,8 @@ export function registerHealthRoute(app: FastifyInstance, deps: HealthDeps): voi
   app.get("/health", async () => {
     try {
       await deps.db.ping();
-    } catch {
-      throw new AppError(503, "DB_UNAVAILABLE", "database is not reachable");
+    } catch (err) {
+      throw new AppError(503, "DB_UNAVAILABLE", "database is not reachable", { cause: err });
     }
     return { status: "ok" };
   });
