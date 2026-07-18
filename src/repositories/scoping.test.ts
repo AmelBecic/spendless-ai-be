@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { createProfilesRepository } from "./profiles";
 import { createFixedExpensesRepository } from "./fixed-expenses";
 import { createTransactionsRepository } from "./transactions";
@@ -190,6 +190,33 @@ describe("repository user scoping", () => {
 
     const data = calls[0]?.args.data as Record<string, unknown>;
     expect(data.userId).toBe(USER);
+  });
+});
+
+describe("profile provisioning under the first-request race", () => {
+  const prismaError = (code: string) =>
+    new Prisma.PrismaClientKnownRequestError("boom", { code, clientVersion: "test" });
+
+  function profilesWithFailingUpsert(err: unknown) {
+    return createProfilesRepository({
+      userProfile: {
+        upsert: async () => {
+          throw err;
+        },
+      },
+    } as unknown as Pick<PrismaClient, "userProfile">);
+  }
+
+  it("treats a lost insert race (P2002) as success — the row exists either way", async () => {
+    await expect(profilesWithFailingUpsert(prismaError("P2002")).ensure(USER)).resolves.toBeUndefined();
+  });
+
+  it("still surfaces any other database failure", async () => {
+    // The P2002 catch must not become a blanket swallow.
+    await expect(profilesWithFailingUpsert(prismaError("P1001")).ensure(USER)).rejects.toThrow();
+    await expect(profilesWithFailingUpsert(new Error("connection lost")).ensure(USER)).rejects.toThrow(
+      "connection lost",
+    );
   });
 });
 

@@ -38,6 +38,38 @@ export async function nullIfNotFound<T>(op: Promise<T>): Promise<T | null> {
   }
 }
 
+/**
+ * True for Prisma's "inconsistent column data" (P2023) — what Postgres raises
+ * when a client-supplied cursor is not a well-formed uuid. A cursor that is
+ * well-formed but matches nothing already yields an empty page, so callers treat
+ * the unparseable case the same way instead of turning bad input into a 500.
+ */
+export function isMalformedCursor(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2023";
+}
+
+/** True for a unique-constraint violation (P2002). */
+export function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+}
+
+/**
+ * Turn the `size + 1` rows a paged query fetches into a `Page`. The extra row is
+ * the lookahead that says whether a further page exists; it is dropped from the
+ * result and its predecessor's id becomes the next cursor.
+ */
+export function toPage<Row extends { id: string }, T>(
+  rows: Row[],
+  size: number,
+  map: (row: Row) => T,
+): Page<T> {
+  const page = rows.slice(0, size);
+  return {
+    items: page.map(map),
+    nextCursor: rows.length > size ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
 /** Read a Json column back as the `string[]` the domain type promises. */
 export function toStringArray(value: Prisma.JsonValue): string[] {
   if (!Array.isArray(value)) return [];

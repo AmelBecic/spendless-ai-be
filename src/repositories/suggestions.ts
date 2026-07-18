@@ -6,7 +6,14 @@
 
 import type { PrismaClient, Suggestion as SuggestionRow } from "@prisma/client";
 import type { Suggestion, SuggestionStatus } from "../domain/types";
-import { nullIfNotFound, toStringArray } from "./shared";
+import {
+  isMalformedCursor,
+  nullIfNotFound,
+  pageSize,
+  toPage,
+  toStringArray,
+  type Page,
+} from "./shared";
 
 export interface CreateSuggestionInput {
   /** The day the underlying stats were computed for. */
@@ -23,10 +30,18 @@ export interface CreateSuggestionInput {
 export interface ListSuggestionsOptions {
   asOfDate?: Date;
   status?: SuggestionStatus;
+  /** Clamped to 1..200; defaults to 50. */
+  limit?: number;
+  /** Id of the last row of the previous page. */
+  cursor?: string;
 }
 
 export interface SuggestionsRepository {
-  list(userId: string, options?: ListSuggestionsOptions): Promise<Suggestion[]>;
+  /**
+   * Paged: the agent writes suggestions per `asOfDate`, so a user's history
+   * grows with every day of use and an unbounded read would load all of it.
+   */
+  list(userId: string, options?: ListSuggestionsOptions): Promise<Page<Suggestion>>;
   /** `null` when the id does not exist **or** belongs to someone else. */
   findById(userId: string, id: string): Promise<Suggestion | null>;
   create(userId: string, input: CreateSuggestionInput): Promise<Suggestion>;
@@ -54,16 +69,24 @@ export function createSuggestionsRepository(
 ): SuggestionsRepository {
   return {
     async list(userId, options = {}) {
-      const rows = await prisma.suggestion.findMany({
-        where: {
-          userId,
-          ...(options.asOfDate ? { asOfDate: options.asOfDate } : {}),
-          ...(options.status ? { status: options.status } : {}),
-        },
-        // Most recent day first; id breaks ties so the order is total.
-        orderBy: [{ asOfDate: "desc" }, { createdAt: "desc" }, { id: "asc" }],
-      });
-      return rows.map(toDomain);
+      const size = pageSize(options.limit);
+      try {
+        const rows = await prisma.suggestion.findMany({
+          where: {
+            userId,
+            ...(options.asOfDate ? { asOfDate: options.asOfDate } : {}),
+            ...(options.status ? { status: options.status } : {}),
+          },
+          // Most recent day first; id breaks ties so the order is total.
+          orderBy: [{ asOfDate: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+          take: size + 1,
+          ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+        });
+        return toPage(rows, size, toDomain);
+      } catch (err) {
+        if (isMalformedCursor(err)) return { items: [], nextCursor: null };
+        throw err;
+      }
     },
 
     async findById(userId, id) {

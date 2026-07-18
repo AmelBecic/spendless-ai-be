@@ -31,6 +31,12 @@ export interface ListFixedExpensesOptions {
 }
 
 export interface FixedExpensesRepository {
+  /**
+   * Unpaged by design: a fixed expense is a standing commitment a person
+   * actively maintains, so the set is bounded by hand (tens of rows) and does
+   * not grow with use the way transactions and suggestions do. Callers want the
+   * whole set anyway — totals over a partial page would be wrong.
+   */
   list(userId: string, options?: ListFixedExpensesOptions): Promise<FixedExpense[]>;
   /** `null` when the id does not exist **or** belongs to someone else. */
   findById(userId: string, id: string): Promise<FixedExpense | null>;

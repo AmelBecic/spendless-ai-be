@@ -113,6 +113,41 @@ describe.skipIf(!hasTestDatabase)("per-user repository isolation", () => {
       expect(page.items.every((t) => t.userId === userA)).toBe(true);
     });
 
+    it("a stale or malformed cursor yields an empty page, not a 500", async () => {
+      await repos.transactions.create(userA, txn("A's shop"));
+
+      // Well-formed but matching nothing (a row deleted since the page was
+      // issued): Prisma resolves it positionally and returns nothing.
+      const stale = await repos.transactions.list(userA, {
+        cursor: "99999999-9999-9999-9999-999999999999",
+      });
+      expect(stale).toEqual({ items: [], nextCursor: null });
+
+      // Not a uuid at all — Postgres cannot parse it (P2023). Client-supplied
+      // junk must not become a server error.
+      const malformed = await repos.transactions.list(userA, { cursor: "not-a-uuid" });
+      expect(malformed).toEqual({ items: [], nextCursor: null });
+    });
+
+    it("pages deterministically and reports a next cursor", async () => {
+      // Same occurredAt on every row, so only the id tiebreak makes paging stable.
+      for (let i = 0; i < 5; i++) await repos.transactions.create(userA, txn(`shop-${i}`));
+
+      const first = await repos.transactions.list(userA, { limit: 2 });
+      expect(first.items).toHaveLength(2);
+      expect(first.nextCursor).toBe(first.items[1]?.id);
+
+      const second = await repos.transactions.list(userA, { limit: 2, cursor: first.nextCursor! });
+      expect(second.items).toHaveLength(2);
+
+      const seen = [...first.items, ...second.items].map((t) => t.id);
+      expect(new Set(seen).size).toBe(4); // no row served twice across pages
+
+      const last = await repos.transactions.list(userA, { limit: 10 });
+      expect(last.items).toHaveLength(5);
+      expect(last.nextCursor).toBeNull(); // exhausted → no further page
+    });
+
     it("date filtering does not widen the scope past the caller", async () => {
       await repos.transactions.create(userB, txn("B's shop"));
 
@@ -139,7 +174,7 @@ describe.skipIf(!hasTestDatabase)("per-user repository isolation", () => {
       const bs = await repos.suggestions.create(userB, suggestion());
 
       expect(await repos.suggestions.findById(userA, bs.id)).toBeNull();
-      expect(await repos.suggestions.list(userA)).toEqual([]);
+      expect((await repos.suggestions.list(userA)).items).toEqual([]);
       expect(await repos.suggestions.findById(userB, bs.id)).not.toBeNull();
     });
 

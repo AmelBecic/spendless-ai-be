@@ -6,7 +6,7 @@
 
 import type { PrismaClient, Transaction as TransactionRow } from "@prisma/client";
 import type { Transaction } from "../domain/types";
-import { nullIfNotFound, pageSize, type Page } from "./shared";
+import { isMalformedCursor, nullIfNotFound, pageSize, toPage, type Page } from "./shared";
 
 export interface CreateTransactionInput {
   amountCents: number;
@@ -76,23 +76,25 @@ export function createTransactionsRepository(
             }
           : undefined;
 
-      const rows = await prisma.transaction.findMany({
-        // `userId` is in the where regardless of the cursor, so a cursor id
-        // lifted from another user still cannot surface that user's rows.
-        where: {
-          userId,
-          ...(occurredAt ? { occurredAt } : {}),
-          ...(options.categoryId ? { categoryId: options.categoryId } : {}),
-        },
-        orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
-        // One extra row tells us whether a further page exists without a count query.
-        take: size + 1,
-        ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
-      });
-
-      const items = rows.slice(0, size).map(toDomain);
-      const nextCursor = rows.length > size ? (items.at(-1)?.id ?? null) : null;
-      return { items, nextCursor };
+      try {
+        const rows = await prisma.transaction.findMany({
+          // `userId` is in the where regardless of the cursor, so a cursor id
+          // lifted from another user still cannot surface that user's rows.
+          where: {
+            userId,
+            ...(occurredAt ? { occurredAt } : {}),
+            ...(options.categoryId ? { categoryId: options.categoryId } : {}),
+          },
+          orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
+          // One extra row tells us whether a further page exists without a count query.
+          take: size + 1,
+          ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+        });
+        return toPage(rows, size, toDomain);
+      } catch (err) {
+        if (isMalformedCursor(err)) return { items: [], nextCursor: null };
+        throw err;
+      }
     },
 
     async findById(userId, id) {

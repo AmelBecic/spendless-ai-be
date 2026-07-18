@@ -4,7 +4,7 @@
 
 import type { PrismaClient, UserProfile as UserProfileRow } from "@prisma/client";
 import type { UserProfile } from "../domain/types";
-import { nullIfNotFound } from "./shared";
+import { isUniqueViolation, nullIfNotFound } from "./shared";
 
 /** The fields a user may change on their own profile. */
 export interface ProfilePatch {
@@ -16,9 +16,9 @@ export interface ProfilePatch {
 
 export interface ProfilesRepository {
   /**
-   * Provision the caller's profile if absent. Idempotent: a repeat call leaves
-   * an existing row untouched (`INSERT ... ON CONFLICT DO NOTHING`), so it is
-   * safe under the concurrent-first-request race.
+   * Provision the caller's profile if absent. Idempotent: `update: {}` means a
+   * repeat call leaves an existing row untouched. Postcondition on return: the
+   * row exists.
    */
   ensure(userId: string): Promise<void>;
   get(userId: string): Promise<UserProfile | null>;
@@ -47,11 +47,20 @@ export function createProfilesRepository(
 ): ProfilesRepository {
   return {
     async ensure(userId) {
-      await prisma.userProfile.upsert({
-        where: { userId },
-        create: { userId },
-        update: {},
-      });
+      try {
+        await prisma.userProfile.upsert({
+          where: { userId },
+          create: { userId },
+          update: {},
+        });
+      } catch (err) {
+        // Prisma only lowers `upsert` to a native ON CONFLICT statement in some
+        // shapes; on the read-then-write path two concurrent first requests for
+        // the same new user both see "no row" and the loser hits the unique
+        // constraint. That loser's postcondition is still satisfied — the row
+        // exists, someone else just inserted it — so this is success, not an error.
+        if (!isUniqueViolation(err)) throw err;
+      }
     },
 
     async get(userId) {
