@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildApp } from "./app";
 import type { Env } from "./config/env";
+import { unusedRepos } from "./test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -10,11 +11,9 @@ const stubAuth = {
   profiles: { ensureProfile: async () => {} },
 };
 
-// Likewise for the repository seam — these paths never reach a route that reads it.
-const stubRepos = { categories: { list: async () => [] } };
-
 const appWith = (ping: () => Promise<void>) =>
-  buildApp({ config: testConfig, db: { ping }, auth: stubAuth, repos: stubRepos });
+  // Likewise for the repository seam — these paths never reach a route that reads it.
+  buildApp({ config: testConfig, db: { ping }, auth: stubAuth, repos: unusedRepos });
 
 describe("buildApp", () => {
   it("GET /health returns { status: 'ok' } when the DB is reachable", async () => {

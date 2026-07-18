@@ -5,6 +5,7 @@ import type { Category } from "../domain/types";
 import type { CategoriesRepository } from "../repositories/categories";
 import type { AuthDeps } from "../auth/plugin";
 import { AppError } from "../http/errors";
+import { unusedFixedExpenses } from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -25,7 +26,7 @@ function appWith(categories: CategoriesRepository, auth = acceptingAuth) {
     config: testConfig,
     db: { ping: async () => {} },
     auth,
-    repos: { categories },
+    repos: { categories, expenses: unusedFixedExpenses },
   });
 }
 

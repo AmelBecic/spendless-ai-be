@@ -34,6 +34,11 @@ first. This list grows every time the reviewer catches something that could have
 - [ ] **`@@unique`** wherever "one row per X" is intended (and the writer upserts).
 - [ ] Money is **int cents + 3-char currency**, never float; add DB **CHECK constraints**
       (amount > 0, `char_length(currency) = 3`, non-negative where intended) as defence-in-depth.
+- [ ] **Edge validation must bound values on BOTH sides, against the column's real limits** — a
+      lower bound alone still lets an over-large value through to overflow at the database as a 500,
+      which is the exact failure the validation existed to prevent. Prisma `Int` is Postgres **int4**
+      (max 2_147_483_647), not bigint. Check the column type, don't assume. (SLAI-9: `amountCents`
+      was `.int().positive()` with no `.max()`; 2_147_483_648 → 500.)
 - [ ] **Supabase: enable RLS on every `public` table.** The anon/publishable key is public and
       PostgREST exposes `public`; deny-all RLS is fine when the backend connects as the owner (which
       bypasses RLS). Note in a comment that owner/`service_role` (BYPASSRLS) are unaffected.

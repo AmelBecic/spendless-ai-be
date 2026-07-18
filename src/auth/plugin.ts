@@ -36,6 +36,22 @@ function bearerToken(req: FastifyRequest): string {
 }
 
 /**
+ * Narrow `req.user` for a handler that runs behind `authenticate`.
+ *
+ * The preHandler always sets it, but the field is optional app-wide (public
+ * routes like /health never have one), so scoped handlers come through here
+ * instead of asserting non-null. If the guard were ever dropped from a route,
+ * this fails closed with a 401 rather than handing the repository `undefined`
+ * as a userId.
+ */
+export function requireUser(req: FastifyRequest): AuthenticatedUser {
+  if (!req.user) {
+    throw new AppError(401, "UNAUTHORIZED", "request is not authenticated");
+  }
+  return req.user;
+}
+
+/**
  * Register the auth seam. Decorates the app with `authenticate`, a preHandler
  * that verifies the bearer token, provisions the caller's profile on first
  * sight (idempotent thereafter), and sets `req.user`.
