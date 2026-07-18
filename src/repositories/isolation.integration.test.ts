@@ -113,6 +113,23 @@ describe.skipIf(!hasTestDatabase)("per-user repository isolation", () => {
       expect(page.items.every((t) => t.userId === userA)).toBe(true);
     });
 
+    it("an owner cannot hand their own row to another user via a smuggled userId", async () => {
+      const own = await repos.transactions.create(userA, txn("A's shop"));
+
+      // A legitimately owns this row, so the `{ id, userId }` scope does not stop
+      // the write — only building `data` from known fields does.
+      await repos.transactions.update(userA, own.id, {
+        amountCents: 99_00,
+        userId: userB,
+      } as Parameters<typeof repos.transactions.update>[2]);
+
+      // The intended field changed; ownership did not.
+      const after = await repos.transactions.findById(userA, own.id);
+      expect(after?.money.amountCents).toBe(99_00);
+      expect(after?.userId).toBe(userA);
+      expect((await repos.transactions.list(userB)).items).toEqual([]);
+    });
+
     it("a stale or malformed cursor yields an empty page, not a 500", async () => {
       await repos.transactions.create(userA, txn("A's shop"));
 

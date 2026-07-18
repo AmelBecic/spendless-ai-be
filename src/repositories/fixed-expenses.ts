@@ -82,13 +82,36 @@ export function createFixedExpensesRepository(
     },
 
     async create(userId, input) {
-      const row = await prisma.fixedExpense.create({ data: { ...input, userId } });
+      const row = await prisma.fixedExpense.create({
+        // Picked, not spread — see the note in transactions.ts.
+        data: {
+          label: input.label,
+          categoryId: input.categoryId,
+          amountCents: input.amountCents,
+          currency: input.currency,
+          cadence: input.cadence,
+          userId,
+        },
+      });
       return toDomain(row);
     },
 
     async update(userId, id, patch) {
       const row = await nullIfNotFound(
-        prisma.fixedExpense.update({ where: { id, userId }, data: patch }),
+        prisma.fixedExpense.update({
+          where: { id, userId },
+          // Picked explicitly so an untyped request body forwarded by a handler
+          // cannot reach `userId` or any column outside this list. See the same
+          // note in transactions.ts.
+          data: {
+            label: patch.label,
+            categoryId: patch.categoryId,
+            amountCents: patch.amountCents,
+            currency: patch.currency,
+            cadence: patch.cadence,
+            active: patch.active,
+          },
+        }),
       );
       return row ? toDomain(row) : null;
     },

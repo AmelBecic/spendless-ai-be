@@ -172,24 +172,77 @@ describe("repository user scoping", () => {
     assertScoped(calls);
   });
 
+  // The input types carry no `userId`, but a handler forwarding an untyped
+  // request body would bypass that at runtime. Both writing paths must build
+  // `data` from known fields, so a smuggled `userId` can never reach Prisma —
+  // on update that would let an owner reassign their row to another account.
+  const OTHER = "22222222-2222-2222-2222-222222222222";
+  const smuggled = { userId: OTHER, id: "forged", createdAt: new Date(0) };
+
   it("a create cannot be tricked into writing another user's id", async () => {
     const calls: Call[] = [];
     const repo = createTransactionsRepository({
       transaction: spyDelegate(calls, transactionRow),
     } as unknown as Pick<PrismaClient, "transaction">);
 
-    // The input types carry no `userId`, but prove the scope wins even when one
-    // is smuggled through an untyped body.
-    const smuggled = {
-      amountCents: 1,
-      currency: "EUR",
-      categoryId: "c1",
-      userId: "22222222-2222-2222-2222-222222222222",
-    };
-    await repo.create(USER, smuggled);
+    await repo.create(USER, { amountCents: 1, currency: "EUR", categoryId: "c1", ...smuggled });
 
     const data = calls[0]?.args.data as Record<string, unknown>;
     expect(data.userId).toBe(USER);
+    expect(data.id).toBeUndefined();
+    expect(data.createdAt).toBeUndefined();
+  });
+
+  it("an update cannot be tricked into reassigning the row to another user", async () => {
+    const cases: { name: string; run: (calls: Call[]) => Promise<unknown> }[] = [
+      {
+        name: "transactions",
+        run: (calls) =>
+          createTransactionsRepository({
+            transaction: spyDelegate(calls, transactionRow),
+          } as unknown as Pick<PrismaClient, "transaction">).update(USER, "t1", {
+            amountCents: 2,
+            ...smuggled,
+          }),
+      },
+      {
+        name: "expenses",
+        run: (calls) =>
+          createFixedExpensesRepository({
+            fixedExpense: spyDelegate(calls, expenseRow),
+          } as unknown as Pick<PrismaClient, "fixedExpense">).update(USER, "e1", {
+            label: "x",
+            ...smuggled,
+          }),
+      },
+      {
+        name: "profiles",
+        run: (calls) =>
+          createProfilesRepository({
+            userProfile: spyDelegate(calls, profileRow),
+          } as unknown as Pick<PrismaClient, "userProfile">).update(USER, {
+            currency: "USD",
+            ...smuggled,
+          }),
+      },
+      {
+        name: "suggestions",
+        run: (calls) =>
+          createSuggestionsRepository({
+            suggestion: spyDelegate(calls, suggestionRow),
+          } as unknown as Pick<PrismaClient, "suggestion">).setStatus(USER, "s1", "dismissed"),
+      },
+    ];
+
+    for (const { name, run } of cases) {
+      const calls: Call[] = [];
+      await run(calls);
+      const data = calls[0]?.args.data as Record<string, unknown>;
+      const where = calls[0]?.args.where as Record<string, unknown>;
+      expect(data.userId, `${name} forwarded a smuggled userId into data`).toBeUndefined();
+      expect(data.id, `${name} forwarded a smuggled id into data`).toBeUndefined();
+      expect(where.userId, `${name} lost its user scope`).toBe(USER);
+    }
   });
 });
 

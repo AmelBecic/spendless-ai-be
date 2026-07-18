@@ -6,7 +6,7 @@
 
 import type { PrismaClient, Transaction as TransactionRow } from "@prisma/client";
 import type { Transaction } from "../domain/types";
-import { isMalformedCursor, nullIfNotFound, pageSize, toPage, type Page } from "./shared";
+import { isUnparseableUuid, nullIfNotFound, pageSize, toPage, type Page } from "./shared";
 
 export interface CreateTransactionInput {
   amountCents: number;
@@ -92,7 +92,9 @@ export function createTransactionsRepository(
         });
         return toPage(rows, size, toDomain);
       } catch (err) {
-        if (isMalformedCursor(err)) return { items: [], nextCursor: null };
+        // Only a supplied cursor may be blamed for an unparseable uuid — a
+        // malformed `categoryId` must surface as an error, not as "no results".
+        if (options.cursor && isUnparseableUuid(err)) return { items: [], nextCursor: null };
         throw err;
       }
     },
@@ -104,14 +106,39 @@ export function createTransactionsRepository(
 
     async create(userId, input) {
       const row = await prisma.transaction.create({
-        data: { ...input, userId, occurredAt: input.occurredAt ?? new Date() },
+        // Picked, not spread: `userId` last would already win, but an untyped
+        // body could otherwise set `id` or `createdAt` too.
+        data: {
+          amountCents: input.amountCents,
+          currency: input.currency,
+          categoryId: input.categoryId,
+          merchant: input.merchant,
+          note: input.note,
+          occurredAt: input.occurredAt ?? new Date(),
+          userId,
+        },
       });
       return toDomain(row);
     },
 
     async update(userId, id, patch) {
       const row = await nullIfNotFound(
-        prisma.transaction.update({ where: { id, userId }, data: patch }),
+        prisma.transaction.update({
+          where: { id, userId },
+          // Picked field by field rather than forwarding `patch`: a handler that
+          // passes an untyped request body straight through must not be able to
+          // reach `userId` (reassigning the row to someone else) or any other
+          // column. `undefined` means "leave alone" to Prisma, so partial
+          // updates still work; an explicit `null` still clears a nullable field.
+          data: {
+            amountCents: patch.amountCents,
+            currency: patch.currency,
+            categoryId: patch.categoryId,
+            merchant: patch.merchant,
+            note: patch.note,
+            occurredAt: patch.occurredAt,
+          },
+        }),
       );
       return row ? toDomain(row) : null;
     },

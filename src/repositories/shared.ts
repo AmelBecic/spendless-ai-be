@@ -40,11 +40,12 @@ export async function nullIfNotFound<T>(op: Promise<T>): Promise<T | null> {
 
 /**
  * True for Prisma's "inconsistent column data" (P2023) — what Postgres raises
- * when a client-supplied cursor is not a well-formed uuid. A cursor that is
- * well-formed but matches nothing already yields an empty page, so callers treat
- * the unparseable case the same way instead of turning bad input into a 500.
+ * when a uuid-typed value cannot be parsed. It does not say *which* value was
+ * bad, so callers must only treat it as a cursor problem when they actually
+ * supplied a cursor; otherwise a malformed `categoryId` would be reported as an
+ * empty page instead of surfacing as bad input.
  */
-export function isMalformedCursor(err: unknown): boolean {
+export function isUnparseableUuid(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2023";
 }
 

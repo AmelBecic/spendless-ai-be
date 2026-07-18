@@ -7,7 +7,7 @@
 import type { PrismaClient, Suggestion as SuggestionRow } from "@prisma/client";
 import type { Suggestion, SuggestionStatus } from "../domain/types";
 import {
-  isMalformedCursor,
+  isUnparseableUuid,
   nullIfNotFound,
   pageSize,
   toPage,
@@ -84,7 +84,8 @@ export function createSuggestionsRepository(
         });
         return toPage(rows, size, toDomain);
       } catch (err) {
-        if (isMalformedCursor(err)) return { items: [], nextCursor: null };
+        // Same reasoning as transactions.list: only a supplied cursor may be blamed.
+        if (options.cursor && isUnparseableUuid(err)) return { items: [], nextCursor: null };
         throw err;
       }
     },
@@ -95,7 +96,19 @@ export function createSuggestionsRepository(
     },
 
     async create(userId, input) {
-      const row = await prisma.suggestion.create({ data: { ...input, userId } });
+      const row = await prisma.suggestion.create({
+        // Picked, not spread — see the note in transactions.ts.
+        data: {
+          asOfDate: input.asOfDate,
+          text: input.text,
+          categoryId: input.categoryId,
+          estMonthlySavingsCents: input.estMonthlySavingsCents,
+          currency: input.currency,
+          rationale: input.rationale,
+          sourceRefs: input.sourceRefs,
+          userId,
+        },
+      });
       return toDomain(row);
     },
 

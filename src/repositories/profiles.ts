@@ -70,7 +70,16 @@ export function createProfilesRepository(
 
     async update(userId, patch) {
       const row = await nullIfNotFound(
-        prisma.userProfile.update({ where: { userId }, data: patch }),
+        prisma.userProfile.update({
+          where: { userId },
+          // Picked explicitly so an untyped request body forwarded by a handler
+          // cannot reach `userId` or any column outside this list.
+          data: {
+            currency: patch.currency,
+            timezone: patch.timezone,
+            monthlyIncomeCents: patch.monthlyIncomeCents,
+          },
+        }),
       );
       return row ? toDomain(row) : null;
     },
