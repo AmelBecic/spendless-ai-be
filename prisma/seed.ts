@@ -13,9 +13,13 @@ async function main(): Promise<void> {
   console.log(`Seeded ${CATEGORIES.length} categories`);
 }
 
-main()
-  .catch((err: unknown) => {
+void (async () => {
+  try {
+    await main();
+  } catch (err: unknown) {
     console.error(err);
     process.exitCode = 1;
-  })
-  .finally(() => prisma.$disconnect());
+  } finally {
+    await prisma.$disconnect();
+  }
+})();

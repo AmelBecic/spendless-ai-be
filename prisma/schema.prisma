@@ -6,6 +6,9 @@
 // owner (and so bypasses RLS). The enable_rls migration turns on row-level
 // security with no policies as defence-in-depth, so Supabase's PostgREST/anon
 // role cannot reach per-user financial data with the public publishable key.
+// NB: this is defence-in-depth, not a hard boundary — the owner role and any
+// BYPASSRLS role (Supabase's service_role) are unaffected, so the service-role
+// key must still be guarded like a secret and kept server-side.
 
 generator client {
   provider = "prisma-client-js"
