@@ -15,8 +15,9 @@ import type { FixedExpense } from "../domain/types";
 import type { CategoriesRepository } from "../repositories/categories";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import { requireUser } from "../auth/plugin";
-import { AppError, ValidationError } from "../http/errors";
+import { AppError } from "../http/errors";
 import { parseOrThrow } from "../http/validation";
+import { amountCents, assertCategoryExists, categoryId, currency } from "./fields";
 
 export interface FixedExpensesDeps {
   expenses: FixedExpensesRepository;
@@ -40,38 +41,7 @@ const label = z
   .min(1, "must not be empty")
   .max(120, "must be at most 120 characters");
 
-// Integer cents only: `.int()` rejects a float outright rather than rounding it,
-// so an amount can never lose precision on the way in.
-//
-// The upper bound is the storage bound, not a product rule: `amountCents` is a
-// Prisma `Int`, i.e. Postgres int4. Without it, 2_147_483_648 passes validation
-// and overflows at the database — the 500 that the categoryId check exists to
-// avoid, in a different guise. Verified against the column: 2_147_483_647
-// stores, one more raises.
-const INT4_MAX = 2_147_483_647;
-
-const amountCents = z
-  .number()
-  .int("must be an integer number of cents")
-  .positive("must be greater than 0")
-  .max(INT4_MAX, "is too large");
-
-// Stored as written, so normalise case here — "eur" and "EUR" must not become
-// two currencies that money arithmetic then refuses to combine.
-const currency = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{3}$/, "must be a 3-letter ISO-4217 code");
-
 const cadence = z.enum(["weekly", "monthly", "yearly"]);
-
-// `guid`, not `uuid`: the shape check is what keeps an unparseable value from
-// reaching a uuid column (Postgres would raise P2023), but the *version* nibble
-// is not ours to assert — these ids are minted by the database, and pinning v4
-// here would turn a future v7 id into "malformed input". Probed: z.uuid()
-// rejects a non-v4 uuid, z.guid() accepts any uuid-shaped string.
-const categoryId = z.guid("must be a category id");
 
 const CreateBody = z.object({ label, categoryId, amountCents, currency, cadence }).strict();
 
@@ -99,19 +69,6 @@ const ListQuery = z
   .strict()
   .transform(({ active }) => ({ active: active === undefined ? undefined : active === "true" }));
 
-/**
- * Confirm the category exists, as a 400 on `categoryId` rather than the 500 the
- * foreign key would otherwise raise. The category set is bounded reference data
- * (see repositories/categories.ts), so listing it is a cheap read of a small
- * table, not a scan that grows with use.
- */
-async function assertCategoryExists(deps: FixedExpensesDeps, id: string): Promise<void> {
-  const categories = await deps.categories.list();
-  if (!categories.some((category) => category.id === id)) {
-    throw new ValidationError([{ path: "categoryId", message: "no such category" }]);
-  }
-}
-
 function notFound(): AppError {
   // Someone else's id and a nonexistent id are deliberately the same answer —
   // a 404 here must not confirm that a row exists on another account.
@@ -130,7 +87,7 @@ export function registerFixedExpensesRoutes(app: FastifyInstance, deps: FixedExp
   app.post("/fixed-expenses", guard, async (req, reply): Promise<FixedExpenseResponse> => {
     const user = requireUser(req);
     const body = parseOrThrow(CreateBody, req.body, "invalid fixed expense");
-    await assertCategoryExists(deps, body.categoryId);
+    await assertCategoryExists(deps.categories, body.categoryId);
 
     const fixedExpense = await deps.expenses.create(user.id, body);
     void reply.status(201);
@@ -141,7 +98,8 @@ export function registerFixedExpensesRoutes(app: FastifyInstance, deps: FixedExp
     const user = requireUser(req);
     const { id } = parseOrThrow(IdParams, req.params, "invalid fixed expense id");
     const patch = parseOrThrow(UpdateBody, req.body, "invalid fixed expense");
-    if (patch.categoryId !== undefined) await assertCategoryExists(deps, patch.categoryId);
+    if (patch.categoryId !== undefined)
+      await assertCategoryExists(deps.categories, patch.categoryId);
 
     const fixedExpense = await deps.expenses.update(user.id, id, patch);
     if (!fixedExpense) throw notFound();

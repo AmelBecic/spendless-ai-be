@@ -3,6 +3,7 @@
 
 import type { CategoriesRepository } from "../repositories/categories";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
+import type { TransactionsRepository } from "../repositories/transactions";
 
 /**
  * A repository whose every method throws. If a test that claims not to touch
@@ -17,7 +18,19 @@ export const unusedFixedExpenses: FixedExpensesRepository = {
   deactivate: () => Promise.reject(new Error("fixed expenses repository used unexpectedly")),
 };
 
+export const unusedTransactions: TransactionsRepository = {
+  list: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+  findById: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+  create: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+  update: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+  delete: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+};
+
 export const emptyCategories: CategoriesRepository = { list: async () => [] };
 
 /** The `repos` bundle for tests that drive no repository-backed route. */
-export const unusedRepos = { categories: emptyCategories, expenses: unusedFixedExpenses };
+export const unusedRepos = {
+  categories: emptyCategories,
+  expenses: unusedFixedExpenses,
+  transactions: unusedTransactions,
+};
