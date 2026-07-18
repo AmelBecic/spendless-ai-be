@@ -31,15 +31,21 @@ beforeAll(async () => {
 
   const jwk: JWK = { ...(await exportJWK(trusted.publicKey)), kid: "test-key", alg: "ES256" };
   const jwks = createLocalJWKSet({ keys: [jwk] });
-  verifier = createJwtAuthVerifier({ keys: jwks, audience: AUDIENCE, issuer: ISSUER });
+  verifier = createJwtAuthVerifier({
+    keys: jwks,
+    audience: AUDIENCE,
+    issuer: ISSUER,
+    expectedRole: "authenticated",
+  });
 });
 
 /** Mint a signed token, defaulting to a valid one; overrides exercise failures. */
 function token(
   key: CryptoKey,
-  opts: { sub?: string | null; aud?: string; expSeconds?: number } = {},
+  opts: { sub?: string | null; aud?: string; role?: string | null; expSeconds?: number } = {},
 ): Promise<string> {
-  const jwt = new SignJWT({})
+  const claims = opts.role === null ? {} : { role: opts.role ?? "authenticated" };
+  const jwt = new SignJWT(claims)
     .setProtectedHeader({ alg: "ES256", kid: "test-key" })
     .setIssuedAt()
     .setIssuer(ISSUER)
@@ -148,6 +154,19 @@ describe("authenticate preHandler", () => {
       headers: authHeader(await token(signingKey, { aud: "anon" })),
     });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("rejects a validly-signed non-end-user token (wrong role claim)", async () => {
+    const profiles = recordingProfiles();
+    const app = protectedApp(profiles);
+    const res = await app.inject({
+      method: "GET",
+      url: "/me",
+      headers: authHeader(await token(signingKey, { role: "service_role" })),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(profiles.calls).toEqual([]); // a service token never provisions a profile
     await app.close();
   });
 

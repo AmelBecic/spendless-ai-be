@@ -3,7 +3,7 @@
 // middleware code — and so tests can verify offline against a local key set
 // instead of calling Supabase.
 
-import { jwtVerify, createRemoteJWKSet, type JWTVerifyGetKey } from "jose";
+import { jwtVerify, createRemoteJWKSet, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { AppError } from "../http/errors";
 
 /** The authenticated principal derived from a verified token. */
@@ -20,8 +20,10 @@ export interface AuthVerifier {
   verify(token: string): Promise<AuthenticatedUser>;
 }
 
-// Supabase issues end-user access tokens with `aud: "authenticated"`.
+// Supabase issues end-user access tokens with `aud: "authenticated"` AND
+// `role: "authenticated"`; anon/service credentials carry a different `role`.
 const SUPABASE_AUDIENCE = "authenticated";
+const SUPABASE_END_USER_ROLE = "authenticated";
 // Asymmetric algorithms Supabase signs its JWTs with. Pinning the set rejects
 // `alg: none` and algorithm-confusion attacks rather than trusting the header.
 const SUPABASE_ALGORITHMS = ["ES256", "RS256"];
@@ -33,6 +35,11 @@ export interface JwtAuthVerifierOptions {
   audience: string;
   /** Required `iss` claim; when omitted the issuer is not checked. */
   issuer?: string;
+  /**
+   * Required `role` claim; when omitted the role is not checked. Distinguishes
+   * an end-user token from anon/service credentials that share the audience.
+   */
+  expectedRole?: string;
   /** Permitted signing algorithms (defaults to Supabase's asymmetric set). */
   algorithms?: string[];
 }
@@ -52,19 +59,23 @@ export function createJwtAuthVerifier(opts: JwtAuthVerifierOptions): AuthVerifie
   const algorithms = opts.algorithms ?? SUPABASE_ALGORITHMS;
   return {
     async verify(token) {
-      let sub: string | undefined;
+      let payload: JWTPayload;
       try {
-        const { payload } = await jwtVerify(token, opts.keys, {
+        ({ payload } = await jwtVerify(token, opts.keys, {
           audience: opts.audience,
           issuer: opts.issuer,
           algorithms,
-        });
-        sub = payload.sub;
+        }));
       } catch (err) {
         throw unauthorized(err);
       }
-      // A validly-signed token with no subject can't identify a user, so it is
-      // still unusable.
+      // A validly-signed token from the wrong actor (anon/service) must not pass
+      // as an end user even though the signature and audience check out.
+      if (opts.expectedRole && payload.role !== opts.expectedRole) {
+        throw unauthorized(new Error("unexpected role claim"));
+      }
+      // A token with no subject can't identify a user, so it is still unusable.
+      const sub = payload.sub;
       if (!sub) throw unauthorized(new Error("token has no `sub` claim"));
       return { id: sub };
     },
@@ -84,5 +95,6 @@ export function createSupabaseAuthVerifier(opts: {
     keys: createRemoteJWKSet(new URL(opts.jwksUrl)),
     audience: SUPABASE_AUDIENCE,
     issuer: opts.issuer,
+    expectedRole: SUPABASE_END_USER_ROLE,
   });
 }

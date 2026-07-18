@@ -11,14 +11,14 @@ import { buildApp } from "./app";
 
 async function main(): Promise<void> {
   const config = loadEnv();
-  if (!config.SUPABASE_JWKS_URL) {
-    throw new Error("SUPABASE_JWKS_URL is required to verify auth tokens");
+  // Both come from the same Supabase project; require both so issuer
+  // verification is never silently skipped by a partial config.
+  if (!config.SUPABASE_JWKS_URL || !config.SUPABASE_URL) {
+    throw new Error("SUPABASE_JWKS_URL and SUPABASE_URL are required to verify auth tokens");
   }
   const pool = createPool(config);
-  // Supabase's issuer is `<project-url>/auth/v1`; verify it when the URL is set.
-  const issuer = config.SUPABASE_URL
-    ? `${config.SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`
-    : undefined;
+  // Supabase's issuer is `<project-url>/auth/v1`.
+  const issuer = `${config.SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`;
   const auth = {
     verifier: createSupabaseAuthVerifier({ jwksUrl: config.SUPABASE_JWKS_URL, issuer }),
     profiles: createPrismaProfileStore(prisma),
