@@ -169,6 +169,8 @@ describe("POST /fixed-expenses", () => {
     ["amountCents zero", { amountCents: 0 }, "amountCents"],
     ["amountCents negative", { amountCents: -1 }, "amountCents"],
     ["amountCents float", { amountCents: 12.5 }, "amountCents"],
+    // int4 is the storage bound — one past it used to overflow into a 500.
+    ["amountCents past int4", { amountCents: 2_147_483_648 }, "amountCents"],
     ["currency", { currency: "EURO" }, "currency"],
     ["cadence", { cadence: "daily" }, "cadence"],
     ["categoryId", { categoryId: "not-a-uuid" }, "categoryId"],

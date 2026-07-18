@@ -210,6 +210,28 @@ describe.skipIf(!hasTestDatabase)("fixed expenses endpoints (integration)", () =
     expect(inactive.json().fixedExpenses.map((e: FixedExpense) => e.id)).toEqual([cancelled.id]);
   });
 
+  // `amountCents` is a Prisma `Int` (Postgres int4). The schema's upper bound has
+  // to be the column's, or an over-large amount passes validation and overflows
+  // at the database as a 500. Both sides of the boundary are pinned here so a
+  // change to either one fails loudly.
+  it("accepts the largest amount the column holds and rejects one more", async () => {
+    const ok = await create(userA, { amountCents: 2_147_483_647 });
+    expect(ok.money.amountCents).toBe(2_147_483_647);
+
+    const app = appAs(userA);
+    const res = await app.inject({
+      method: "POST",
+      url: "/fixed-expenses",
+      headers: AUTH,
+      payload: body({ amountCents: 2_147_483_648 }),
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.details[0].path).toBe("amountCents");
+    expect(await testDb().fixedExpense.count()).toBe(1);
+  });
+
   it("a well-formed but unknown id is a 404", async () => {
     const app = appAs(userA);
     const res = await app.inject({

@@ -42,10 +42,19 @@ const label = z
 
 // Integer cents only: `.int()` rejects a float outright rather than rounding it,
 // so an amount can never lose precision on the way in.
+//
+// The upper bound is the storage bound, not a product rule: `amountCents` is a
+// Prisma `Int`, i.e. Postgres int4. Without it, 2_147_483_648 passes validation
+// and overflows at the database — the 500 that the categoryId check exists to
+// avoid, in a different guise. Verified against the column: 2_147_483_647
+// stores, one more raises.
+const INT4_MAX = 2_147_483_647;
+
 const amountCents = z
   .number()
   .int("must be an integer number of cents")
-  .positive("must be greater than 0");
+  .positive("must be greater than 0")
+  .max(INT4_MAX, "is too large");
 
 // Stored as written, so normalise case here — "eur" and "EUR" must not become
 // two currencies that money arithmetic then refuses to combine.
