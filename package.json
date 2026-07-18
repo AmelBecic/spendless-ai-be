@@ -10,18 +10,28 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "secrets": "gitleaks detect --no-banner"
+    "secrets": "gitleaks detect --no-banner",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "eslint": "^9.39.5",
     "prettier": "^3.9.5",
+    "prisma": "^6.19.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0",
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.10.0",
     "pg": "^8.22.0",

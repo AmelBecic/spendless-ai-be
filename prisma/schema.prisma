@@ -1,0 +1,131 @@
+// SpendLess persistence schema. The backend owns this — so the database is
+// portable off Supabase later. Money is always Int cents + String currency;
+// no Float on any money column.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (pgbouncer) — app runtime
+  directUrl = env("DIRECT_URL") // direct — migrations
+}
+
+enum Cadence {
+  weekly
+  monthly
+  yearly
+}
+
+enum SuggestionStatus {
+  new
+  dismissed
+  applied
+}
+
+/// Per-user settings, mirrored from Supabase auth.users (userId = auth.users.id).
+model UserProfile {
+  userId             String   @id @db.Uuid
+  currency           String   @default("EUR")
+  timezone           String   @default("UTC")
+  monthlyIncomeCents Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fixedExpenses    FixedExpense[]
+  transactions     Transaction[]
+  profileSummaries ProfileSummary[]
+  suggestions      Suggestion[]
+
+  @@map("user_profiles")
+}
+
+model Category {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  label     String
+  createdAt DateTime @default(now())
+
+  fixedExpenses FixedExpense[]
+  transactions  Transaction[]
+  suggestions   Suggestion[]
+
+  @@map("categories")
+}
+
+/// A recurring monthly/weekly/yearly commitment (rent, subscriptions…).
+model FixedExpense {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  label       String
+  categoryId  String   @db.Uuid
+  amountCents Int
+  currency    String
+  cadence     Cadence
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  category Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([userId])
+  @@map("fixed_expenses")
+}
+
+/// A single day-to-day spend event — the stream the profile is built from.
+model Transaction {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  amountCents Int
+  currency    String
+  categoryId  String   @db.Uuid
+  merchant    String?
+  note        String?
+  occurredAt  DateTime
+  createdAt   DateTime @default(now())
+
+  user     UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  category Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, occurredAt])
+  @@map("transactions")
+}
+
+/// A point-in-time, AI-maintained summary of a user's financial profile.
+model ProfileSummary {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  asOfDate  DateTime @db.Date
+  summary   Json
+  narrative String
+  model     String
+  createdAt DateTime @default(now())
+
+  user UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, asOfDate])
+  @@map("profile_summaries")
+}
+
+/// A grounded, cited savings suggestion. Savings amount is Int cents + currency.
+model Suggestion {
+  id                     String           @id @default(uuid()) @db.Uuid
+  userId                 String           @db.Uuid
+  asOfDate               DateTime         @db.Date
+  text                   String
+  categoryId             String?          @db.Uuid
+  estMonthlySavingsCents Int
+  currency               String
+  rationale              String
+  sourceRefs             Json
+  status                 SuggestionStatus @default(new)
+  createdAt              DateTime         @default(now())
+
+  user     UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  category Category?   @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, asOfDate])
+  @@map("suggestions")
+}
