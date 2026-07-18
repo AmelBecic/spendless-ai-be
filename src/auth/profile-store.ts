@@ -3,6 +3,7 @@
 // database.
 
 import type { PrismaClient } from "@prisma/client";
+import { createProfilesRepository } from "../repositories/profiles";
 
 /**
  * Ensures a user's `UserProfile` row exists. Runs on every authenticated
@@ -14,23 +15,18 @@ export interface ProfileStore {
 }
 
 /**
- * Postgres-backed store. A single idempotent upsert: `INSERT ... ON CONFLICT DO
- * NOTHING`, so it's safe under the concurrent-first-request race and `update: {}`
- * never resets an existing profile. Currency and timezone come from the schema
- * defaults (EUR / UTC). The per-request DB hit is elided in the steady state by
+ * Postgres-backed store, delegating to the profiles repository so provisioning
+ * and the rest of the app share one writer (see repositories/profiles.ts for the
+ * idempotency guarantee). Currency and timezone come from the schema defaults
+ * (EUR / UTC). The per-request DB hit is elided in the steady state by
  * `withProvisioningCache` (see provisioning-cache.ts), not here — this stays a
  * dumb, correct writer.
  */
 export function createPrismaProfileStore(
   prisma: Pick<PrismaClient, "userProfile">,
 ): ProfileStore {
+  const profiles = createProfilesRepository(prisma);
   return {
-    async ensureProfile(userId) {
-      await prisma.userProfile.upsert({
-        where: { userId },
-        create: { userId },
-        update: {},
-      });
-    },
+    ensureProfile: (userId) => profiles.ensure(userId),
   };
 }

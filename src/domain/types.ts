@@ -22,6 +22,21 @@ export interface Category {
   label: string;
 }
 
+/** A user's own settings. `userId` is the Supabase `auth.users.id`. */
+export interface UserProfile {
+  userId: string;
+  /** The currency every amount of this user's is denominated in. */
+  currency: string;
+  /** IANA timezone, e.g. "Europe/Sarajevo" — the day boundary stats are cut on. */
+  timezone: string;
+  /** Declared monthly income, in the profile's currency. Absent until the user sets it. */
+  monthlyIncome?: Money;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+  /** ISO-8601 timestamp. */
+  updatedAt: string;
+}
+
 /** A recurring commitment (rent, subscriptions, …). */
 export interface FixedExpense {
   id: string;
