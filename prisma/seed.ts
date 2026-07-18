@@ -14,9 +14,8 @@ async function main(): Promise<void> {
 }
 
 main()
-  .then(() => prisma.$disconnect())
-  .catch(async (err: unknown) => {
+  .catch((err: unknown) => {
     console.error(err);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());

@@ -1,6 +1,11 @@
 // SpendLess persistence schema. The backend owns this — so the database is
 // portable off Supabase later. Money is always Int cents + String currency;
 // no Float on any money column.
+//
+// Access is exclusively through the Fastify backend, which connects as the table
+// owner (and so bypasses RLS). The enable_rls migration turns on row-level
+// security with no policies as defence-in-depth, so Supabase's PostgREST/anon
+// role cannot reach per-user financial data with the public publishable key.
 
 generator client {
   provider = "prisma-client-js"
@@ -95,7 +100,8 @@ model Transaction {
   @@map("transactions")
 }
 
-/// A point-in-time, AI-maintained summary of a user's financial profile.
+/// The AI-maintained summary of a user's financial profile — one per user per day
+/// (the writer upserts on the (userId, asOfDate) unique key).
 model ProfileSummary {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid
@@ -107,7 +113,7 @@ model ProfileSummary {
 
   user UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  @@index([userId, asOfDate])
+  @@unique([userId, asOfDate])
   @@map("profile_summaries")
 }
 
