@@ -71,6 +71,7 @@ model FixedExpense {
   category Category    @relation(fields: [categoryId], references: [id])
 
   @@index([userId])
+  @@index([categoryId])
   @@map("fixed_expenses")
 }
 
@@ -90,6 +91,7 @@ model Transaction {
   category Category    @relation(fields: [categoryId], references: [id])
 
   @@index([userId, occurredAt])
+  @@index([categoryId])
   @@map("transactions")
 }
 
@@ -127,5 +129,6 @@ model Suggestion {
   category Category?   @relation(fields: [categoryId], references: [id])
 
   @@index([userId, asOfDate])
+  @@index([categoryId])
   @@map("suggestions")
 }
