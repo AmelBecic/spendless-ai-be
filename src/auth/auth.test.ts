@@ -98,6 +98,8 @@ function protectedApp(profiles: ProfileStore) {
     config: testConfig,
     db: { ping: async () => {} },
     auth: { verifier, profiles },
+    // These tests drive /me, not a repository-backed route.
+    repos: { categories: { list: async () => [] } },
   });
   app.get("/me", { preHandler: app.authenticate }, async (req) => ({ id: req.user?.id }));
   return app;

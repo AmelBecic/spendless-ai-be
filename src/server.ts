@@ -8,6 +8,7 @@ import { prisma } from "./db/client";
 import { createSupabaseAuthVerifier } from "./auth/verifier";
 import { createPrismaProfileStore } from "./auth/profile-store";
 import { withProvisioningCache } from "./auth/provisioning-cache";
+import { createRepositories } from "./repositories";
 import { buildApp } from "./app";
 
 async function main(): Promise<void> {
@@ -24,7 +25,8 @@ async function main(): Promise<void> {
     verifier: createSupabaseAuthVerifier({ jwksUrl: config.SUPABASE_JWKS_URL, issuer }),
     profiles: withProvisioningCache(createPrismaProfileStore(prisma)),
   };
-  const app = buildApp({ config, db: { ping: () => pingPool(pool) }, auth });
+  const repos = createRepositories(prisma);
+  const app = buildApp({ config, db: { ping: () => pingPool(pool) }, auth, repos });
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received — shutting down`);

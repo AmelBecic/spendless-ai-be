@@ -10,8 +10,11 @@ const stubAuth = {
   profiles: { ensureProfile: async () => {} },
 };
 
+// Likewise for the repository seam — these paths never reach a route that reads it.
+const stubRepos = { categories: { list: async () => [] } };
+
 const appWith = (ping: () => Promise<void>) =>
-  buildApp({ config: testConfig, db: { ping }, auth: stubAuth });
+  buildApp({ config: testConfig, db: { ping }, auth: stubAuth, repos: stubRepos });
 
 describe("buildApp", () => {
   it("GET /health returns { status: 'ok' } when the DB is reachable", async () => {

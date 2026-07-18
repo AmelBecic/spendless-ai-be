@@ -7,11 +7,15 @@ import type { Env } from "./config/env";
 import { AppError, type ErrorBody } from "./http/errors";
 import { registerAuth, type AuthDeps } from "./auth/plugin";
 import { registerHealthRoute } from "./routes/health";
+import { registerCategoriesRoute } from "./routes/categories";
+import type { CategoriesRepository } from "./repositories/categories";
 
 export interface AppDeps {
   config: Env;
   db: { ping: () => Promise<void> };
   auth: AuthDeps;
+  /** The data-access seam routes read through. Narrowed to what the registered routes need. */
+  repos: { categories: CategoriesRepository };
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -48,6 +52,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // app-wide here; /health stays public (no preHandler).
   registerAuth(app, deps.auth);
   registerHealthRoute(app, { db: deps.db });
+  registerCategoriesRoute(app, { categories: deps.repos.categories });
 
   return app;
 }
