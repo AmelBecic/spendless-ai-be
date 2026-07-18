@@ -72,12 +72,31 @@ function isRealCalendarDate(value: string): boolean {
   return !Number.isNaN(Date.parse(value));
 }
 
-export const timestamp = z
+/** True for a bare `YYYY-MM-DD` with no time component. */
+function isDateOnly(value: string): boolean {
+  return !/[T ]/.test(value);
+}
+
+const isoString = z
   .string()
   .trim()
   .regex(ISO_DATE_OR_DATETIME, "must be an ISO-8601 date or date-time")
-  .refine(isRealCalendarDate, "is not a real date")
-  .transform((value) => new Date(value));
+  .refine(isRealCalendarDate, "is not a real date");
+
+export const timestamp = isoString.transform((value) => new Date(value));
+
+/**
+ * An *inclusive* upper bound. A bare date has to cover the whole day it names,
+ * not the single instant of its midnight: a date-only value parses to 00:00:00Z,
+ * so against the repository's `lte` filter `?to=2026-07-31` would match only
+ * transactions at exactly midnight and silently drop the other 24 hours — a
+ * month's spend under-reporting its last day. Advancing to the end of that UTC
+ * day is what makes `from`/`to` symmetrical, since midnight is already the right
+ * instant for a lower bound. A value that carries a time is taken as written.
+ */
+export const inclusiveEndTimestamp = isoString.transform((value) =>
+  isDateOnly(value) ? new Date(`${value}T23:59:59.999Z`) : new Date(value),
+);
 
 /**
  * Free text a client may send empty to mean "none". Trimmed before the length

@@ -352,6 +352,65 @@ describe("GET /transactions", () => {
     await app.close();
   });
 
+  // A date-only `to` names a whole day, not its midnight. Parsed naively it
+  // would be 00:00:00Z and the inclusive filter would drop the other 24 hours,
+  // so a month's listing would silently lose its last day.
+  it("includes the whole final day when ?to is a bare date", async () => {
+    const repo = fakeRepo([
+      tx({ id: txId(1), occurredAt: "2026-07-31T00:00:00.000Z" }),
+      tx({ id: txId(2), occurredAt: "2026-07-31T12:00:00.000Z" }),
+      tx({ id: txId(3), occurredAt: "2026-07-31T23:59:59.000Z" }),
+      tx({ id: txId(4), occurredAt: "2026-08-01T00:00:00.000Z" }),
+    ]);
+    const app = appWith(repo);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/transactions?from=2026-07-01&to=2026-07-31",
+      headers: AUTH,
+    });
+
+    expect(res.json().transactions.map((t: Transaction) => t.id)).toEqual([
+      txId(3),
+      txId(2),
+      txId(1),
+    ]);
+    await app.close();
+  });
+
+  it("takes ?to as written when it carries a time", async () => {
+    const repo = fakeRepo([
+      tx({ id: txId(1), occurredAt: "2026-07-31T09:00:00.000Z" }),
+      tx({ id: txId(2), occurredAt: "2026-07-31T18:00:00.000Z" }),
+    ]);
+    const app = appWith(repo);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/transactions?to=2026-07-31T12:00:00.000Z",
+      headers: AUTH,
+    });
+
+    expect(res.json().transactions.map((t: Transaction) => t.id)).toEqual([txId(1)]);
+    await app.close();
+  });
+
+  // The end-of-day widening must not turn an equal-date pair into "from > to".
+  it("accepts from and to naming the same day", async () => {
+    const repo = fakeRepo([tx({ occurredAt: "2026-07-18T09:30:00.000Z" })]);
+    const app = appWith(repo);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/transactions?from=2026-07-18&to=2026-07-18",
+      headers: AUTH,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().transactions).toHaveLength(1);
+    await app.close();
+  });
+
   it("rejects a from later than to instead of silently returning nothing", async () => {
     const app = appWith(fakeRepo());
 

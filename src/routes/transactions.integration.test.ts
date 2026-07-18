@@ -297,6 +297,23 @@ describe.skipIf(!hasTestDatabase)("transactions endpoints (integration)", () => 
     expect(res.json().transactions.map((t: Transaction) => t.merchant)).toEqual(["inside"]);
   });
 
+  // Against the real `lte` filter: a bare `to` date must cover its whole day,
+  // or a calendar-month listing quietly under-reports the last one.
+  it("?to as a bare date includes the whole final day", async () => {
+    await create(userA, { occurredAt: "2026-07-31T12:00:00.000Z", merchant: "last day" });
+    await create(userA, { occurredAt: "2026-08-01T00:00:00.000Z", merchant: "next month" });
+
+    const app = appAs(userA);
+    const res = await app.inject({
+      method: "GET",
+      url: "/transactions?from=2026-07-01&to=2026-07-31",
+      headers: AUTH,
+    });
+    await app.close();
+
+    expect(res.json().transactions.map((t: Transaction) => t.merchant)).toEqual(["last day"]);
+  });
+
   it("DELETE removes the row", async () => {
     const mine = await create(userA);
 

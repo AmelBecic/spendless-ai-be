@@ -22,6 +22,7 @@ import {
   assertCategoryExists,
   categoryId,
   currency,
+  inclusiveEndTimestamp,
   optionalText,
   timestamp,
 } from "./fields";
@@ -84,7 +85,8 @@ const IdParams = z.object({ id: z.guid("must be a transaction id") }).strict();
 const ListQuery = z
   .object({
     from: timestamp.optional(),
-    to: timestamp.optional(),
+    // Inclusive to the end of the day when given as a bare date — see fields.ts.
+    to: inclusiveEndTimestamp.optional(),
     categoryId: categoryId.optional(),
     limit: z.coerce
       .number()
