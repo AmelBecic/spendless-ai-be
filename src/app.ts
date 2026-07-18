@@ -9,15 +9,21 @@ import { registerAuth, type AuthDeps } from "./auth/plugin";
 import { registerHealthRoute } from "./routes/health";
 import { registerCategoriesRoute } from "./routes/categories";
 import { registerFixedExpensesRoutes } from "./routes/fixed-expenses";
+import { registerTransactionsRoutes } from "./routes/transactions";
 import type { CategoriesRepository } from "./repositories/categories";
 import type { FixedExpensesRepository } from "./repositories/fixed-expenses";
+import type { TransactionsRepository } from "./repositories/transactions";
 
 export interface AppDeps {
   config: Env;
   db: { ping: () => Promise<void> };
   auth: AuthDeps;
   /** The data-access seam routes read through. Narrowed to what the registered routes need. */
-  repos: { categories: CategoriesRepository; expenses: FixedExpensesRepository };
+  repos: {
+    categories: CategoriesRepository;
+    expenses: FixedExpensesRepository;
+    transactions: TransactionsRepository;
+  };
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -80,6 +86,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerCategoriesRoute(app, { categories: deps.repos.categories });
   registerFixedExpensesRoutes(app, {
     expenses: deps.repos.expenses,
+    categories: deps.repos.categories,
+  });
+  registerTransactionsRoutes(app, {
+    transactions: deps.repos.transactions,
     categories: deps.repos.categories,
   });
 

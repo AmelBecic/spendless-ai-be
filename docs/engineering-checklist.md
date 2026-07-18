@@ -63,6 +63,19 @@ first. This list grows every time the reviewer catches something that could have
       (SLAI-7: a nonexistent cursor was assumed to throw; it returns an empty page. A doc comment
       promised `ON CONFLICT DO NOTHING` that the ORM does not always emit.)
 
+## Dates & times on the wire
+- [ ] **A date-time without `Z` or an offset is parsed as *server-local* time** (a bare `YYYY-MM-DD`
+      is UTC) — so the same request means different instants on different hosts, and on a
+      positive-offset deployment lands in the previous UTC day. Require the designator on any value
+      carrying a time rather than inheriting the server's clock. (SLAI-10.)
+- [ ] **An inclusive upper bound given as a bare date must cover its whole day.** `to=2026-07-31`
+      parses to 00:00:00Z, so an `lte` filter drops 24 hours and a month's listing silently
+      under-reports its last day. Widen to 23:59:59.999Z. Test the `to` side, not just `from` —
+      midnight is coincidentally correct for a lower bound, which hides the bug. (SLAI-10.)
+- [ ] **`Date.parse` NaN is not a calendar check.** `2026-07-32` yields NaN but `2026-02-31` rolls
+      forward to 2026-03-03, filing data under the wrong month. Verify the day against the month's
+      real length. (SLAI-10.)
+
 ## Secrets & tests
 - [ ] No secrets committed; `.env` git-ignored; every key documented in `.env.example`.
 - [ ] Unit tests cover the invariants a refactor could silently break (fixed sets, idempotency, guards).
