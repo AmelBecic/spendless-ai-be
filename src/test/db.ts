@@ -13,11 +13,12 @@ export const hasTestDatabase = Boolean(testDatabaseUrl);
 let client: PrismaClient | undefined;
 
 // Hard guard: resetDb() truncates every table, so refuse to point at anything
-// that isn't obviously a disposable test database. Documentation is not a control.
+// that isn't obviously a disposable test database. The database NAME must contain
+// "test" — the real Supabase database is named "postgres", so it is refused.
+// (An equality check vs DATABASE_URL was deliberately dropped: in CI DATABASE_URL
+// legitimately points at the same disposable test DB so the app singleton can be
+// exercised, and the name check already covers the real-DB case.)
 function assertDisposable(url: string): void {
-  if (process.env.DATABASE_URL && url === process.env.DATABASE_URL) {
-    throw new Error("TEST_DATABASE_URL must not equal DATABASE_URL — refusing to truncate the real database");
-  }
   const dbName = new URL(url).pathname.replace(/^\//, "");
   if (!/test/i.test(dbName)) {
     throw new Error(`TEST_DATABASE_URL database name "${dbName}" must contain "test" — refusing to truncate a non-test database`);
