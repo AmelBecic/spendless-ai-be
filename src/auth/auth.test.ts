@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import {
   SignJWT,
+  UnsecuredJWT,
   exportJWK,
   generateKeyPair,
   createLocalJWKSet,
@@ -40,20 +41,49 @@ beforeAll(async () => {
 });
 
 /** Mint a signed token, defaulting to a valid one; overrides exercise failures. */
-function token(
-  key: CryptoKey,
-  opts: { sub?: string | null; aud?: string; role?: string | null; expSeconds?: number } = {},
-): Promise<string> {
+interface TokenOpts {
+  sub?: string | null;
+  aud?: string;
+  role?: string | null;
+  iss?: string;
+  expSeconds?: number;
+}
+
+function token(key: CryptoKey, opts: TokenOpts = {}): Promise<string> {
   const claims = opts.role === null ? {} : { role: opts.role ?? "authenticated" };
   const jwt = new SignJWT(claims)
     .setProtectedHeader({ alg: "ES256", kid: "test-key" })
     .setIssuedAt()
-    .setIssuer(ISSUER)
+    .setIssuer(opts.iss ?? ISSUER)
     .setAudience(opts.aud ?? AUDIENCE)
     .setExpirationTime(Math.floor(Date.now() / 1000) + (opts.expSeconds ?? 300));
   // sub: undefined omits it; a string sets it. `null` means "leave it out".
   if (opts.sub !== null) jwt.setSubject(opts.sub ?? "user-123");
   return jwt.sign(key);
+}
+
+// An HS256 token — the classic algorithm-confusion attack: an attacker who knows
+// the public key tries to have it accepted as an HMAC secret.
+function hs256Token(secret: string): Promise<string> {
+  return new SignJWT({ role: "authenticated" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setSubject("user-123")
+    .setExpirationTime("5m")
+    .sign(new TextEncoder().encode(secret));
+}
+
+// An unsecured `alg: none` token — no signature at all.
+function noneToken(): string {
+  return new UnsecuredJWT({ role: "authenticated" })
+    .setIssuedAt()
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setSubject("user-123")
+    .setExpirationTime("5m")
+    .encode();
 }
 
 /** A profile store that records the ids it was asked to provision. */
@@ -157,6 +187,41 @@ describe("authenticate preHandler", () => {
     await app.close();
   });
 
+  it("rejects an unsecured `alg: none` token", async () => {
+    const profiles = recordingProfiles();
+    const app = protectedApp(profiles);
+    const res = await app.inject({ method: "GET", url: "/me", headers: authHeader(noneToken()) });
+    expect(res.statusCode).toBe(401);
+    expect(profiles.calls).toEqual([]);
+    await app.close();
+  });
+
+  it("rejects an HS256 token (algorithm-confusion — only ES256/RS256 are pinned)", async () => {
+    const profiles = recordingProfiles();
+    const app = protectedApp(profiles);
+    const res = await app.inject({
+      method: "GET",
+      url: "/me",
+      headers: authHeader(await hs256Token("attacker-chosen-secret")),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(profiles.calls).toEqual([]);
+    await app.close();
+  });
+
+  it("rejects a well-signed token with the wrong issuer", async () => {
+    const profiles = recordingProfiles();
+    const app = protectedApp(profiles);
+    const res = await app.inject({
+      method: "GET",
+      url: "/me",
+      headers: authHeader(await token(signingKey, { iss: "https://evil.example/auth/v1" })),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(profiles.calls).toEqual([]);
+    await app.close();
+  });
+
   it("rejects a validly-signed non-end-user token (wrong role claim)", async () => {
     const profiles = recordingProfiles();
     const app = protectedApp(profiles);
@@ -179,5 +244,24 @@ describe("authenticate preHandler", () => {
     });
     expect(res.statusCode).toBe(401);
     await app.close();
+  });
+});
+
+describe("createJwtAuthVerifier error classification", () => {
+  it("maps a JWKS resolution failure to 503, not a token 401", async () => {
+    // A well-formed ES256 token, but the key resolver fails as a remote JWKS
+    // fetch would during an outage — the header/alg check passes first, then the
+    // resolver throws, so this exercises the infra-vs-token branch.
+    const verifier = createJwtAuthVerifier({
+      keys: async () => {
+        throw new Error("getaddrinfo ENOTFOUND supabase");
+      },
+      audience: AUDIENCE,
+      issuer: ISSUER,
+    });
+    await expect(verifier.verify(await token(signingKey))).rejects.toMatchObject({
+      statusCode: 503,
+      code: "AUTH_UNAVAILABLE",
+    });
   });
 });

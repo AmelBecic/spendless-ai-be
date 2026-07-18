@@ -14,23 +14,18 @@ export interface ProfileStore {
 }
 
 /**
- * Postgres-backed store. Reads first so the steady state (profile already
- * exists — the overwhelming majority of authenticated requests) is a single
- * indexed primary-key lookup, not a write. Only first sight falls through to an
- * upsert, which still guards the concurrent-first-request race; `update: {}`
- * deliberately does nothing so an existing profile is never reset. Currency and
- * timezone come from the schema defaults (EUR / UTC).
+ * Postgres-backed store. A single idempotent upsert: `INSERT ... ON CONFLICT DO
+ * NOTHING`, so it's safe under the concurrent-first-request race and `update: {}`
+ * never resets an existing profile. Currency and timezone come from the schema
+ * defaults (EUR / UTC). The per-request DB hit is elided in the steady state by
+ * `withProvisioningCache` (see provisioning-cache.ts), not here — this stays a
+ * dumb, correct writer.
  */
 export function createPrismaProfileStore(
   prisma: Pick<PrismaClient, "userProfile">,
 ): ProfileStore {
   return {
     async ensureProfile(userId) {
-      const existing = await prisma.userProfile.findUnique({
-        where: { userId },
-        select: { userId: true },
-      });
-      if (existing) return;
       await prisma.userProfile.upsert({
         where: { userId },
         create: { userId },

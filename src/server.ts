@@ -7,6 +7,7 @@ import { createPool, pingPool } from "./db/pool";
 import { prisma } from "./db/client";
 import { createSupabaseAuthVerifier } from "./auth/verifier";
 import { createPrismaProfileStore } from "./auth/profile-store";
+import { withProvisioningCache } from "./auth/provisioning-cache";
 import { buildApp } from "./app";
 
 async function main(): Promise<void> {
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   const issuer = `${config.SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`;
   const auth = {
     verifier: createSupabaseAuthVerifier({ jwksUrl: config.SUPABASE_JWKS_URL, issuer }),
-    profiles: createPrismaProfileStore(prisma),
+    profiles: withProvisioningCache(createPrismaProfileStore(prisma)),
   };
   const app = buildApp({ config, db: { ping: () => pingPool(pool) }, auth });
 

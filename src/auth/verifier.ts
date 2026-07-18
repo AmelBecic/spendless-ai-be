@@ -3,7 +3,7 @@
 // middleware code — and so tests can verify offline against a local key set
 // instead of calling Supabase.
 
-import { jwtVerify, createRemoteJWKSet, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { jwtVerify, createRemoteJWKSet, errors, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { AppError } from "../http/errors";
 
 /** The authenticated principal derived from a verified token. */
@@ -44,11 +44,29 @@ export interface JwtAuthVerifierOptions {
   algorithms?: string[];
 }
 
-// Any verification failure collapses to one opaque 401 so callers never learn
+// A genuine token failure collapses to one opaque 401 so callers never learn
 // which check failed (signature vs expiry vs audience) — the cause is retained
 // for server-side logging via the app error handler.
 const unauthorized = (cause: unknown) =>
   new AppError(401, "UNAUTHORIZED", "invalid or expired token", { cause });
+
+// A failure to *reach* the signing keys (JWKS fetch/timeout) is an upstream
+// outage, not a bad token — surface it as 503 so clients back off instead of
+// force-logging-out every user during a Supabase/network incident.
+const authUnavailable = (cause: unknown) =>
+  new AppError(503, "AUTH_UNAVAILABLE", "authentication is temporarily unavailable", { cause });
+
+// jose codes that mean "the keys couldn't be resolved" rather than "the token is
+// bad". Every other jose error is token-level (401); a non-jose throw (e.g. a
+// raw fetch rejection resolving the remote JWKS) is treated as infra (503).
+const INFRA_ERROR_CODES = new Set<string>(["ERR_JWKS_TIMEOUT"]);
+
+function classifyVerifyError(err: unknown): AppError {
+  if (err instanceof errors.JOSEError) {
+    return INFRA_ERROR_CODES.has(err.code) ? authUnavailable(err) : unauthorized(err);
+  }
+  return authUnavailable(err);
+}
 
 /**
  * A JWT verifier over a key resolver. `jose` enforces `exp`; audience and the
@@ -67,7 +85,7 @@ export function createJwtAuthVerifier(opts: JwtAuthVerifierOptions): AuthVerifie
           algorithms,
         }));
       } catch (err) {
-        throw unauthorized(err);
+        throw classifyVerifyError(err);
       }
       // A validly-signed token from the wrong actor (anon/service) must not pass
       // as an end user even though the signature and audience check out.
@@ -85,14 +103,19 @@ export function createJwtAuthVerifier(opts: JwtAuthVerifierOptions): AuthVerifie
 /**
  * The production verifier: checks Supabase access tokens against the project's
  * JWKS endpoint. `createRemoteJWKSet` fetches and caches the keys, so there is
- * no per-request network call in the steady state.
+ * no per-request network call in the steady state; the fetch is bounded by a
+ * timeout and rate-limited by a cooldown so a slow/flapping endpoint can't hang
+ * or hammer requests.
  */
 export function createSupabaseAuthVerifier(opts: {
   jwksUrl: string;
   issuer?: string;
 }): AuthVerifier {
   return createJwtAuthVerifier({
-    keys: createRemoteJWKSet(new URL(opts.jwksUrl)),
+    keys: createRemoteJWKSet(new URL(opts.jwksUrl), {
+      timeoutDuration: 5000,
+      cooldownDuration: 30000,
+    }),
     audience: SUPABASE_AUDIENCE,
     issuer: opts.issuer,
     expectedRole: SUPABASE_END_USER_ROLE,

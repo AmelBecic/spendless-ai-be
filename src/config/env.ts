@@ -16,7 +16,9 @@ const EnvSchema = z.object({
   // Postgres (Supabase). Required — the app cannot run without a database.
   DATABASE_URL: z.string().trim().min(1, "DATABASE_URL is required"),
   DIRECT_URL: optionalNonEmpty, // used by Prisma migrations (SLAI-4)
-  // Supabase Auth / API — not needed until the auth ticket (SLAI-6).
+  // Supabase Auth / API. SUPABASE_URL + SUPABASE_JWKS_URL are required for JWT
+  // verification (SLAI-6) and enforced at boot in server.ts; kept optional here
+  // so tests and tooling can load a minimal env without them.
   SUPABASE_URL: optionalNonEmpty,
   SUPABASE_ANON_KEY: optionalNonEmpty,
   SUPABASE_JWKS_URL: optionalNonEmpty,
