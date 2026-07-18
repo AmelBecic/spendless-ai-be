@@ -10,7 +10,16 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "secrets": "gitleaks detect --no-banner"
+    "secrets": "gitleaks detect --no-banner",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
@@ -22,9 +31,11 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.10.0",
     "pg": "^8.22.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.23.1",
     "zod": "^4.4.3"
   }
