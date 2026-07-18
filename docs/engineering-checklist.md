@@ -40,6 +40,24 @@ first. This list grows every time the reviewer catches something that could have
 - [ ] Seeds are idempotent (`upsert`), teardown awaited in `try/catch/finally`.
 - [ ] Migrations apply cleanly to an empty DB; no drift (`prisma migrate status` == up to date).
 
+## Data access & multi-tenancy
+- [ ] **Never forward a request body / patch object straight into an ORM `data`.** Build the payload
+      from known fields. A typed input parameter is a compile-time promise only — an untyped body
+      forwarded by a handler lets the caller write `userId` (reassigning a row to another account),
+      `id`, or `createdAt`. Applies to **updates as much as creates**; the create path is the one
+      people remember to guard. (SLAI-7: real, reproduced — the row moved between users.)
+- [ ] Every per-user read/write filters on `userId` **in the same statement** as the id
+      (`where: { id, userId }`), so there is no read-then-write window and a foreign row is
+      indistinguishable from a missing one.
+- [ ] **List methods on tables that grow with use are bounded** (cursor + clamped page size). Ask
+      "does this table grow per day of use?" — if yes, unpaged is a slow leak, not a nit.
+- [ ] **Catch narrow, and know what the code means.** A broad catch that maps an error to a benign
+      empty result hides unrelated failures (SLAI-7: P2023 says "some uuid was unparseable", not
+      "the cursor was bad" — it masked a malformed `categoryId` as "no results").
+- [ ] **Verify assumed database/ORM behaviour before writing a comment that asserts it** — probe it.
+      (SLAI-7: a nonexistent cursor was assumed to throw; it returns an empty page. A doc comment
+      promised `ON CONFLICT DO NOTHING` that the ORM does not always emit.)
+
 ## Secrets & tests
 - [ ] No secrets committed; `.env` git-ignored; every key documented in `.env.example`.
 - [ ] Unit tests cover the invariants a refactor could silently break (fixed sets, idempotency, guards).
