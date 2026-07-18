@@ -5,11 +5,13 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Env } from "./config/env";
 import { AppError, type ErrorBody } from "./http/errors";
+import { registerAuth, type AuthDeps } from "./auth/plugin";
 import { registerHealthRoute } from "./routes/health";
 
 export interface AppDeps {
   config: Env;
   db: { ping: () => Promise<void> };
+  auth: AuthDeps;
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -42,6 +44,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.status(404).send(body);
   });
 
+  // Auth seam: exposes `app.authenticate` for routes to guard with. Registered
+  // app-wide here; /health stays public (no preHandler).
+  registerAuth(app, deps.auth);
   registerHealthRoute(app, { db: deps.db });
 
   return app;

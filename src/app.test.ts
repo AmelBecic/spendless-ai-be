@@ -4,8 +4,14 @@ import type { Env } from "./config/env";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
+// The health/404 paths don't touch auth; a stub keeps buildApp's contract satisfied.
+const stubAuth = {
+  verifier: { verify: async () => ({ id: "test-user" }) },
+  profiles: { ensureProfile: async () => {} },
+};
+
 const appWith = (ping: () => Promise<void>) =>
-  buildApp({ config: testConfig, db: { ping } });
+  buildApp({ config: testConfig, db: { ping }, auth: stubAuth });
 
 describe("buildApp", () => {
   it("GET /health returns { status: 'ok' } when the DB is reachable", async () => {
