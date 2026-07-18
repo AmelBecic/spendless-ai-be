@@ -25,7 +25,11 @@ jobs:
           --health-retries 5
 
     env:
+      # The disposable Postgres service. DATABASE_URL/DIRECT_URL point here too so
+      # the app's Prisma singleton connects to the test DB during integration tests.
       TEST_DATABASE_URL: postgresql://test:test@localhost:5432/spendless_test
+      DATABASE_URL: postgresql://test:test@localhost:5432/spendless_test
+      DIRECT_URL: postgresql://test:test@localhost:5432/spendless_test
 
     steps:
       - uses: actions/checkout@v4
@@ -46,9 +50,6 @@ jobs:
 
       - name: Apply migrations to the test database
         run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Lint
         run: npm run lint --if-present
