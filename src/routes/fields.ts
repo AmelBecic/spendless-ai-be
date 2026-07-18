@@ -38,11 +38,21 @@ export const currency = z
 // rejects a non-v4 uuid, z.guid() accepts any uuid-shaped string.
 export const categoryId = z.guid("must be a category id");
 
-// A calendar date (`2026-07-18`) or a full timestamp. The 4-digit year in the
-// pattern is doing real work: it caps the value at 9999-12-31, comfortably
-// inside Postgres's timestamp range, so an absurd year cannot reach the column.
+// A calendar date (`2026-07-18`) or a full timestamp. Two constraints are load
+// bearing:
+//
+// The 4-digit year caps the value at 9999-12-31, comfortably inside Postgres's
+// timestamp range, so an absurd year cannot reach the column.
+//
+// A value carrying a time MUST state its zone (`Z` or an offset). Per spec a
+// date-time with no designator is read as *server-local* time while a bare date
+// is read as UTC, so `2026-07-01T00:30:00` would mean a different instant on
+// every host and, on any positive-offset deployment, land in the previous UTC
+// day — filing a spend in the wrong month, the exact failure this validation
+// exists to prevent. Requiring the designator makes the client state the instant
+// it means rather than inheriting the server's clock.
 const ISO_DATE_OR_DATETIME =
-  /^(\d{4})-(\d{2})-(\d{2})([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  /^(\d{4})-(\d{2})-(\d{2})([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2}))?$/;
 
 /**
  * True when `value` names a date that exists and a time the engine can read.
@@ -53,10 +63,10 @@ const ISO_DATE_OR_DATETIME =
  * (`2026-07-32`, `2026-13-01`) does yield NaN, but a day merely wrong for *its*
  * month does not — `2026-02-31` silently rolls forward to 2026-03-03, filing a
  * typo'd spend in the wrong month for the stats layer to later report as fact.
- * Comparing the parsed date's components back is too strict: per the spec a
- * timestamp with no `Z` or offset is read as *local* time, so `…T00:30:00` in a
- * positive-offset zone lands on the previous UTC day and would be rejected as
- * unreal. Counting the days in the month sidesteps both. (Probed, not assumed.)
+ * Comparing the parsed date's components back is too strict: a legitimate zone
+ * offset shifts the UTC date, so `2026-07-01T00:30:00+02:00` lands on the
+ * previous UTC day and would be rejected as unreal. Counting the days in the
+ * month sidesteps both. (Probed, not assumed.)
  */
 function isRealCalendarDate(value: string): boolean {
   const match = ISO_DATE_OR_DATETIME.exec(value);
@@ -80,7 +90,7 @@ function isDateOnly(value: string): boolean {
 const isoString = z
   .string()
   .trim()
-  .regex(ISO_DATE_OR_DATETIME, "must be an ISO-8601 date or date-time")
+  .regex(ISO_DATE_OR_DATETIME, "must be an ISO-8601 date, or a date-time with a `Z` or UTC offset")
   .refine(isRealCalendarDate, "is not a real date");
 
 export const timestamp = isoString.transform((value) => new Date(value));

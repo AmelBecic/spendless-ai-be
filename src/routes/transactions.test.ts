@@ -177,6 +177,23 @@ describe("POST /transactions", () => {
     await app.close();
   });
 
+  it("accepts an explicit UTC offset and resolves it to the right instant", async () => {
+    const app = appWith(fakeRepo());
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/transactions",
+      headers: AUTH,
+      // 00:30 at +02:00 is 22:30Z the *previous* day — the offset must be
+      // applied, not ignored, or the spend lands in the wrong day (or month).
+      payload: { ...validBody, occurredAt: "2026-07-02T00:30:00+02:00" },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().transaction.occurredAt).toBe("2026-07-01T22:30:00.000Z");
+    await app.close();
+  });
+
   it("normalises currency case so one currency cannot become two", async () => {
     const app = appWith(fakeRepo());
 
@@ -204,6 +221,9 @@ describe("POST /transactions", () => {
     ["categoryId", { categoryId: "not-a-uuid" }, "categoryId"],
     ["occurredAt", { occurredAt: "yesterday" }, "occurredAt"],
     ["occurredAt impossible date", { occurredAt: "2026-02-31" }, "occurredAt"],
+    // No `Z`/offset would be read as server-local time, so the same request
+    // would mean a different instant on every host.
+    ["occurredAt without a zone", { occurredAt: "2026-07-18T09:30:00" }, "occurredAt"],
   ])("rejects invalid %s with a field-level 400 and never writes", async (_name, patch, field) => {
     const repo = fakeRepo();
     const app = appWith(repo);
