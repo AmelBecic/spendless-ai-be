@@ -1,23 +1,13 @@
 // Seeds the fixed category set. Idempotent — safe to run repeatedly.
+// The category set itself lives in src/domain/categories.ts (typed + unit-tested).
 
 import { PrismaClient } from "@prisma/client";
+import { CATEGORIES } from "../src/domain/categories";
 
 const prisma = new PrismaClient();
 
-const CATEGORIES: ReadonlyArray<readonly [key: string, label: string]> = [
-  ["groceries", "Groceries"],
-  ["dining", "Dining"],
-  ["transport", "Transport"],
-  ["rent", "Rent"],
-  ["utilities", "Utilities"],
-  ["subscriptions", "Subscriptions"],
-  ["entertainment", "Entertainment"],
-  ["health", "Health"],
-  ["other", "Other"],
-];
-
 async function main(): Promise<void> {
-  for (const [key, label] of CATEGORIES) {
+  for (const { key, label } of CATEGORIES) {
     await prisma.category.upsert({ where: { key }, update: { label }, create: { key, label } });
   }
   console.log(`Seeded ${CATEGORIES.length} categories`);
