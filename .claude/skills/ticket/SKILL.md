@@ -84,20 +84,35 @@ by bullet — every bullet must be satisfiable by something you can point at in 
 Invoke the **`verify`** skill, or drive the app via the **`run`** skill. Tests passing is not
 verification — exercise the behaviour the AC describes and observe it.
 
-## Step 8 — Gates
+## Step 8 — Self-review against the checklist (before you spend a reviewer run)
+
+Go through **`docs/engineering-checklist.md`** and fix everything you can find yourself. The AI
+reviewer is an expensive backstop, not your first-pass QA — most of what it catches (unindexed FKs,
+missing timeouts, swallowed errors, RLS, lockfile drift, prod-vs-dev deps) is predictable and cheap to
+fix up front. Every avoidable finding is a wasted review round.
+
+## Step 9 — Gates
 
 Run the repo's quality gates (from `package.json` scripts / `CLAUDE.md` — typically
 `npm run lint && npm run typecheck && npm run test`). **All must pass before committing.** Never
 `--no-verify`.
 
-## Step 9 — Commit & PR
+**After any dependency change**, clean-regen the lockfile before committing
+(`rm -rf node_modules package-lock.json && npm install`) or CI `npm ci` will fail on dropped
+cross-platform optional deps.
+
+## Step 10 — Commit & PR
 
 - Commit: `feat: <KEY>-<n> <what changed>` (or `fix:` / `docs:` / `chore:`).
 - Push, then `gh pr create`.
 - **PR title must start with `<KEY>-<n>`** (the `pr-title` CI check fails otherwise).
 - PR body: what changed, and the AC as a checklist so the reviewer can check fulfilment.
 
-## Step 10 — Review (do not skip, do not ask permission)
+## Step 11 — Review (do not skip, do not ask permission)
+
+**Before running it, confirm GitHub has your latest commit** — reviewing a stale diff produces
+phantom findings and wastes a whole run:
+`[ "$(gh pr view <n> --json headRefOid -q .headRefOid)" = "$(git rev-parse HEAD)" ]`.
 
 ```bash
 cd <reviewerPath>
@@ -105,12 +120,15 @@ npm run review -- --pr <pr-url> --post
 ```
 
 The reviewer reads Jira live from its own `.env` — **never** pass `--jira`. This is the step that was
-always manual; if a PR was opened in step 9, it runs. Then **triage the findings yourself**:
-- Real bugs / AC misses → fix on the branch, push, re-run the review.
-- Disagree → say so explicitly with a reason. Don't silently ignore.
+always manual; if a PR was opened in step 10, it runs. Then **triage the findings yourself**:
+- Real bugs / AC misses → fix them. **Batch all fixes into one push**, then re-review **at most once**
+  to confirm — do not re-run the reviewer after each individual fix (each run costs real budget).
+- Disagree, or it's a low/nit you're deferring → say so explicitly with a reason. Don't silently ignore.
 - Reviewer approving its own author's PR degrades to COMMENT — expected, not a failure.
+- If findings keep coming in successive rounds, they were predictable — feed them back into
+  `docs/engineering-checklist.md` so Step 8 catches them next time.
 
-## Step 11 — Hand back
+## Step 12 — Hand back
 
 - Transition to **In Review**.
 - Comment on the ticket with the PR link + the review verdict (`addCommentToJiraIssue`).
