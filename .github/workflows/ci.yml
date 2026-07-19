@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
 
+# A new push supersedes the run still going for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -43,7 +51,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -51,14 +59,16 @@ jobs:
       - name: Apply migrations to the test database
         run: npx prisma migrate deploy
 
+      # No `--if-present`: these three scripts all exist, and if one is ever
+      # renamed away the gate must fail loudly rather than silently pass.
       - name: Lint
-        run: npm run lint --if-present
+        run: npm run lint
 
       - name: Typecheck
-        run: npm run typecheck --if-present
+        run: npm run typecheck
 
       - name: Test
-        run: npm run test --if-present
+        run: npm run test
 
       - name: Dependency audit
         run: npm audit --audit-level=high || true
