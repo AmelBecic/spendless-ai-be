@@ -5,6 +5,7 @@ import type { FixedExpense, ProfileSummary, Transaction, UserProfile } from "../
 import { AppError } from "../http/errors";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfilesRepository } from "../repositories/profiles";
+import type { CategoriesRepository } from "../repositories/categories";
 import type {
   ProfileSummariesRepository,
   UpsertProfileSummaryInput,
@@ -86,6 +87,10 @@ function fakeExpenses(seed: FixedExpense[] = []): FixedExpensesRepository {
   };
 }
 
+const fakeCategories: CategoriesRepository = {
+  list: async () => [{ id: FOOD, key: "food", label: "Food" }],
+};
+
 function fakeProfiles(row: UserProfile | null): ProfilesRepository {
   return {
     ensure: async () => {},
@@ -164,6 +169,7 @@ function depsWith(options: {
       expenses: fakeExpenses(),
       profiles: fakeProfiles(options.profile === undefined ? profile : options.profile),
       summaries: summaries.repo,
+      categories: fakeCategories,
     },
   };
 }
@@ -192,6 +198,14 @@ describe("incrementalWindow", () => {
 
   it("is empty when the previous summary postdates the period", () => {
     expect(incrementalWindow(summaryOn("2026-08-01"), period)).toBeNull();
+  });
+
+  it("floors the lookback so a long-stale profile stays refreshable", () => {
+    // A year-old summary would otherwise span a year of transactions, trip the
+    // ledger cap, and 422 — permanently, since nothing would ever narrow it.
+    const window = incrementalWindow(summaryOn("2025-07-19"), period);
+
+    expect(window).toEqual({ start: "2026-05-02", end: "2026-07-19" });
   });
 });
 
@@ -268,6 +282,30 @@ describe("refreshProfile", () => {
     await refreshProfile(deps, USER, NOW);
 
     expect(nth(requests, 0).input).not.toContain("9999.99");
+  });
+
+  it("skips the model when today's summary exists and nothing has changed", async () => {
+    // The transaction predates the summary's own write, so a second refresh has
+    // nothing new to interpret and must not pay for an identical answer.
+    const previous = summaryOn("2026-07-19");
+    const stale = { ...tx(1500, "2026-07-05"), createdAt: "2026-07-05T12:00:00.000Z" };
+    const { deps, requests, writes } = depsWith({ transactions: [stale], previous });
+
+    const result = await refreshProfile(deps, USER, NOW);
+
+    expect(requests).toHaveLength(0);
+    expect(writes).toHaveLength(0);
+    expect(result).toBe(previous);
+  });
+
+  it("still runs when a transaction was recorded after today's summary", async () => {
+    const previous = summaryOn("2026-07-19");
+    const fresh = { ...tx(1500, "2026-07-19"), createdAt: "2026-07-19T18:00:00.000Z" };
+    const { deps, requests } = depsWith({ transactions: [fresh], previous });
+
+    await refreshProfile(deps, USER, NOW);
+
+    expect(requests).toHaveLength(1);
   });
 
   it("is a 404 when the caller has no profile row to report a currency for", async () => {

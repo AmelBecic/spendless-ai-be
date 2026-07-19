@@ -22,6 +22,8 @@ const HEALTH = "33333333-3333-4333-8333-333333333333";
 
 const eur = (amountCents: number) => ({ amountCents, currency: "EUR" });
 
+const LABELS: Record<string, string> = { [FOOD]: "Food", [HEALTH]: "Health" };
+
 /** Figures chosen so every derived form is exact — no rounding ambiguity. */
 const stats: SpendStats = {
   periodStart: "2026-07-01",
@@ -113,6 +115,7 @@ describe("buildProfileInput", () => {
       previous,
       newTransactions: [tx(1500, "2026-07-15")],
       stats,
+      categoryLabels: LABELS,
     });
 
     expect(input).toContain("2026-07-15");
@@ -122,7 +125,12 @@ describe("buildProfileInput", () => {
   });
 
   it("carries the previous summary forward so habits can survive a refresh", () => {
-    const input = buildProfileInput({ previous, newTransactions: [], stats });
+    const input = buildProfileInput({
+      previous,
+      newTransactions: [],
+      stats,
+      categoryLabels: LABELS,
+    });
 
     expect(input).toContain("Buys lunch out on weekdays");
     expect(input).toContain("As of: 2026-07-12");
@@ -130,13 +138,49 @@ describe("buildProfileInput", () => {
   });
 
   it("says so explicitly on a first refresh rather than showing an empty block", () => {
-    const input = buildProfileInput({ previous: null, newTransactions: [], stats });
+    const input = buildProfileInput({
+      previous: null,
+      newTransactions: [],
+      stats,
+      categoryLabels: LABELS,
+    });
 
     expect(input).toContain("first summary for this user");
   });
 
+  it("names categories rather than showing the model raw uuids", () => {
+    const input = buildProfileInput({
+      previous: null,
+      newTransactions: [tx(1500, "2026-07-15")],
+      stats,
+      categoryLabels: LABELS,
+    });
+
+    expect(input).toContain("Food");
+    expect(input).toContain("category=Food");
+    expect(input).not.toContain(FOOD);
+  });
+
+  it("falls back to the id when a category has no label yet", () => {
+    const input = buildProfileInput({
+      previous: null,
+      newTransactions: [],
+      stats,
+      categoryLabels: {},
+    });
+
+    // Unreadable, but the category's spend still appears — dropping the line
+    // would understate the period.
+    expect(input).toContain(FOOD);
+  });
+
   it("renders amounts in major units, as the model is expected to quote them", () => {
-    const input = buildProfileInput({ previous: null, newTransactions: [], stats });
+    const input = buildProfileInput({
+      previous: null,
+      newTransactions: [],
+      stats,
+      categoryLabels: LABELS,
+    });
 
     expect(input).toContain("1234.56 EUR");
     expect(input).not.toContain("123456 EUR");
@@ -144,7 +188,10 @@ describe("buildProfileInput", () => {
 });
 
 describe("findUngroundedFigures", () => {
-  const allowed = allowedFigures(stats, 3);
+  // Three new transactions, so the permitted counts and the per-transaction
+  // amounts both have something real behind them.
+  const newTransactions = [tx(1500, "2026-07-15"), tx(2500, "2026-07-16"), tx(3500, "2026-07-17")];
+  const allowed = allowedFigures(stats, newTransactions);
 
   it("accepts a figure quoted straight from the stats", () => {
     expect(findUngroundedFigures("You spent 1234.56 EUR.", allowed)).toEqual([]);
@@ -175,6 +222,23 @@ describe("findUngroundedFigures", () => {
     ]);
   });
 
+  it("accepts an amount from a transaction the model was shown", () => {
+    // The transaction block hands the model these figures; quoting one back is a
+    // reading of the ledger, not a fabrication.
+    expect(findUngroundedFigures("A 15.00 EUR lunch stood out.", allowed)).toEqual([]);
+    expect(findUngroundedFigures("Another was 35.00 EUR.", allowed)).toEqual([]);
+  });
+
+  it("still rejects a bare day-of-month ordinal", () => {
+    // "the 17th" is not a figure the stats contain, and nothing distinguishes it
+    // from a fabricated amount — hence the prompt's rule to spell ordinals out.
+    expect(findUngroundedFigures("You spent 35.00 EUR on the 17th.", allowed)).toEqual(["17"]);
+  });
+
+  it("ignores a uuid rather than reading it as a run of huge figures", () => {
+    expect(findUngroundedFigures(`Category ${FOOD} led your spend.`, allowed)).toEqual([]);
+  });
+
   it("permits a count that matches the data it describes", () => {
     // Two categories, three new transactions — both are claims the stats support.
     expect(findUngroundedFigures("Across 2 categories and 3 purchases.", allowed)).toEqual([]);
@@ -190,7 +254,12 @@ describe("runProfileAgent", () => {
       narrative: "You spent 1234.56 EUR between 2026-07-01 and 2026-07-19.",
     });
 
-    const result = await runProfileAgent(llm, { previous, newTransactions: [], stats });
+    const result = await runProfileAgent(llm, {
+      previous,
+      newTransactions: [],
+      stats,
+      categoryLabels: LABELS,
+    });
 
     expect(result.summary.habits).toEqual(["Spends 1234.56 EUR a month"]);
     expect(result.narrative).toContain("1234.56");
@@ -200,9 +269,9 @@ describe("runProfileAgent", () => {
   it("rejects a narrative carrying a figure absent from the stats", async () => {
     const { llm } = stubLlm({ narrative: "You spent 4200.00 EUR, up sharply." });
 
-    await expect(runProfileAgent(llm, { previous, newTransactions: [], stats })).rejects.toThrow(
-      AppError,
-    );
+    await expect(
+      runProfileAgent(llm, { previous, newTransactions: [], stats, categoryLabels: LABELS }),
+    ).rejects.toThrow(AppError);
   });
 
   it("checks the structured fields too, not only the narrative", async () => {
@@ -210,14 +279,19 @@ describe("runProfileAgent", () => {
     const { llm } = stubLlm({ habits: ["Averages 88.88 EUR a day"] });
 
     await expect(
-      runProfileAgent(llm, { previous, newTransactions: [], stats }),
+      runProfileAgent(llm, { previous, newTransactions: [], stats, categoryLabels: LABELS }),
     ).rejects.toMatchObject({ code: "LLM_UNGROUNDED", statusCode: 502 });
   });
 
   it("sends the instruction prefix as `system` and the volatile payload as `input`", async () => {
     const { llm, requests } = stubLlm({});
 
-    await runProfileAgent(llm, { previous, newTransactions: [tx(1500, "2026-07-15")], stats });
+    await runProfileAgent(llm, {
+      previous,
+      newTransactions: [tx(1500, "2026-07-15")],
+      stats,
+      categoryLabels: LABELS,
+    });
 
     // The cached prefix must not carry per-request data, or it changes every call
     // and caches nothing.

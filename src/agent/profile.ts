@@ -36,6 +36,11 @@ export interface ProfileAgentInput {
   newTransactions: Transaction[];
   /** Deterministic figures for the period being reported on. */
   stats: SpendStats;
+  /**
+   * Category id → human label. Without it the model sees only UUIDs and cannot
+   * name what it is describing, which is most of a spending profile's value.
+   */
+  categoryLabels: Record<string, string>;
 }
 
 export interface ProfileAgentResult {
@@ -99,7 +104,11 @@ function formatMoney(money: Money): string {
  * invites exactly the division the grounding rule forbids.
  */
 export function buildProfileInput(input: ProfileAgentInput): string {
-  const { previous, newTransactions, stats } = input;
+  const { previous, newTransactions, stats, categoryLabels } = input;
+  // An id with no label falls back to the id: a category seeded after this
+  // summary's stats were computed should degrade to something unreadable rather
+  // than drop the line and understate the period.
+  const labelFor = (categoryId: string) => categoryLabels[categoryId] ?? categoryId;
 
   const previousBlock = previous
     ? [
@@ -115,7 +124,7 @@ export function buildProfileInput(input: ProfileAgentInput): string {
     ? newTransactions
         .map(
           (tx) =>
-            `- ${tx.occurredAt.slice(0, 10)} ${formatMoney(tx.money)} category=${tx.categoryId}` +
+            `- ${tx.occurredAt.slice(0, 10)} ${formatMoney(tx.money)} category=${labelFor(tx.categoryId)}` +
             `${tx.merchant ? ` merchant=${tx.merchant}` : ""}${tx.note ? ` note=${tx.note}` : ""}`,
         )
         .join("\n")
@@ -124,7 +133,7 @@ export function buildProfileInput(input: ProfileAgentInput): string {
   const categoryLines = stats.byCategory
     .map(
       (entry) =>
-        `- ${entry.categoryId}: ${formatMoney(entry.total)} (${(entry.share * 100).toFixed(1)}% of period spend)`,
+        `- ${labelFor(entry.categoryId)}: ${formatMoney(entry.total)} (${(entry.share * 100).toFixed(1)}% of period spend)`,
     )
     .join("\n");
 
@@ -170,8 +179,16 @@ function addMoneyFigures(allowed: Set<string>, money: Money): void {
  * about the data, and it happens to be a true one when five is how many there
  * are — an ordinal that matches nothing in the stats is still a fabrication.
  */
-export function allowedFigures(stats: SpendStats, newTransactionCount: number): Set<string> {
+export function allowedFigures(stats: SpendStats, newTransactions: Transaction[]): Set<string> {
   const allowed = new Set<string>();
+
+  // The individual amounts are shown to the model in the transaction block, and
+  // they come from the user's own ledger — quoting "a 15.00 EUR lunch" is a
+  // reading of the data, not a fabrication. Forbidding them would fail a refresh
+  // over a figure this code handed the model itself.
+  for (const transaction of newTransactions) {
+    addMoneyFigures(allowed, transaction.money);
+  }
 
   for (const money of [
     stats.total,
@@ -196,7 +213,7 @@ export function allowedFigures(stats: SpendStats, newTransactionCount: number): 
   for (const count of [
     stats.byCategory.length,
     stats.topCategories.length,
-    newTransactionCount,
+    newTransactions.length,
     periodDays(period),
   ]) {
     allowed.add(normalizeFigure(count));
@@ -222,9 +239,16 @@ const FIGURE_PATTERN = /\d[\d,]*(?:\.\d+)?%?/g;
  * ISO dates are removed before scanning rather than allow-listed part by part:
  * `2026-07-19` would otherwise contribute a bare `7` to the permitted set and
  * quietly license an unrelated "7" elsewhere in the narrative.
+ *
+ * UUIDs are removed for the opposite reason. Categories are labelled now, so the
+ * model has no cause to quote an id — but a stray one would otherwise be read as
+ * a run of enormous fabricated figures and fail the refresh over the code's own
+ * identifier rather than over anything the model claimed about money.
  */
 export function findUngroundedFigures(text: string, allowed: Set<string>): string[] {
-  const scannable = text.replace(/\d{4}-\d{2}-\d{2}/g, " ");
+  const scannable = text
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, " ")
+    .replace(/\d{4}-\d{2}-\d{2}/g, " ");
   const ungrounded: string[] = [];
 
   for (const match of scannable.matchAll(FIGURE_PATTERN)) {
@@ -266,7 +290,7 @@ export async function runProfileAgent(
 
   const ungrounded = findUngroundedFigures(
     narratedText(data),
-    allowedFigures(input.stats, input.newTransactions.length),
+    allowedFigures(input.stats, input.newTransactions),
   );
   if (ungrounded.length > 0) {
     throw new AppError(502, "LLM_UNGROUNDED", "the model reported figures absent from the stats", {

@@ -112,6 +112,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     expenses: deps.repos.expenses,
     profiles: deps.repos.profiles,
     summaries: deps.repos.summaries,
+    categories: deps.repos.categories,
   });
 
   return app;

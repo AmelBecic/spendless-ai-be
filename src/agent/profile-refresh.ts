@@ -8,6 +8,7 @@ import type { ProfilesRepository } from "../repositories/profiles";
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfileSummariesRepository } from "../repositories/profile-summaries";
+import type { CategoriesRepository } from "../repositories/categories";
 import { aggregate, type Period } from "./aggregate";
 import { listPeriod, loadLedger } from "./stats";
 import { MODEL, type LlmClient } from "./anthropic";
@@ -19,6 +20,21 @@ export interface ProfileRefreshDeps {
   expenses: FixedExpensesRepository;
   profiles: ProfilesRepository;
   summaries: ProfileSummariesRepository;
+  /** Read for category labels — the model is shown names, not uuids. */
+  categories: CategoriesRepository;
+}
+
+/**
+ * True when today's summary already exists and nothing has been recorded since
+ * it was written, so re-running the model would pay for an identical answer.
+ *
+ * The comparison is against the summary's `createdAt`, not its `asOfDate`: the
+ * question is bookkeeping ("has anything been entered since we last looked?"),
+ * which is exactly what a row's insert timestamp answers, and day granularity
+ * cannot answer it at all.
+ */
+function nothingChangedSince(previous: ProfileSummary, transactions: Transaction[]): boolean {
+  return transactions.every((tx) => tx.createdAt <= previous.createdAt);
 }
 
 /**
@@ -32,9 +48,23 @@ export function profilePeriod(now: Date): Period {
   return { start: `${end.slice(0, 7)}-01`, end };
 }
 
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * How far back a single refresh will reach, however stale the profile is.
+ *
+ * Without a floor, a user who lapsed for a year comes back to a window spanning
+ * that year: `listPeriod` walks it, trips `LedgerTooLargeError`, and the request
+ * 422s. Nothing in the flow would ever shrink that window, so every subsequent
+ * refresh fails identically and the profile is stuck permanently. Clamping trades
+ * the oldest unseen activity — which the previous summary's narrative already
+ * carries forward in prose — for a loop that always terminates.
+ */
+export const MAX_INCREMENTAL_LOOKBACK_DAYS = 60;
+
 /**
  * The slice of activity the model sees: everything from the previous summary's
- * own day onwards.
+ * own day onwards, floored at `MAX_INCREMENTAL_LOOKBACK_DAYS` before the period.
  *
  * Inclusive of that day, not the day after it. `asOfDate` has day granularity,
  * so a summary written at midday and refreshed again that evening would
@@ -44,8 +74,15 @@ export function profilePeriod(now: Date): Period {
  */
 export function incrementalWindow(previous: ProfileSummary | null, period: Period): Period | null {
   if (!previous) return period;
-  const start = previous.asOfDate;
-  if (start > period.end) return null;
+  if (previous.asOfDate > period.end) return null;
+
+  const floor = new Date(
+    Date.parse(`${period.start}T00:00:00.000Z`) - MAX_INCREMENTAL_LOOKBACK_DAYS * MS_PER_DAY,
+  )
+    .toISOString()
+    .slice(0, 10);
+  // Both are `YYYY-MM-DD`, so a string compare is a date compare.
+  const start = previous.asOfDate > floor ? previous.asOfDate : floor;
   return { start, end: period.end };
 }
 
@@ -95,10 +132,22 @@ export async function refreshProfile(
   const window = incrementalWindow(previous, period);
   const transactions = await newTransactions(deps, userId, window, period, ledger.transactions);
 
+  // Cheapest possible guard on a paid endpoint: a caller who refreshes twice with
+  // no spending in between gets the row they already have, at the cost of the
+  // reads above and no completion at all. A per-user rate limit — the general
+  // answer to an unmetered LLM route — is SLAI-19's.
+  if (previous && previous.asOfDate === period.end && nothingChangedSince(previous, transactions)) {
+    return previous;
+  }
+
+  const categories = await deps.categories.list();
+  const categoryLabels = Object.fromEntries(categories.map((c) => [c.id, c.label]));
+
   const result = await runProfileAgent(deps.llm, {
     previous,
     newTransactions: transactions,
     stats,
+    categoryLabels,
   });
 
   return deps.summaries.upsert(userId, {
