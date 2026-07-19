@@ -13,7 +13,7 @@ arithmetic.** Every figure a suggestion quotes traces back to a value this servi
 
 ## Stack
 
-Node 22+ / TypeScript (ESM) · [Fastify](https://fastify.dev) · [Prisma](https://www.prisma.io)
+Node 24+ / TypeScript (ESM) · [Fastify](https://fastify.dev) · [Prisma](https://www.prisma.io)
 migrations over Supabase Postgres · Supabase Auth (JWT verified in-process) · Vitest.
 
 ## Architecture
@@ -45,7 +45,7 @@ The seams that matter:
 
 ## Running locally
 
-**Prerequisites:** Node ≥ 22 and a Postgres database (Supabase, or any local instance).
+**Prerequisites:** Node ≥ 24 and a Postgres database (Supabase, or any local instance).
 
 ```bash
 git clone git@github.com:AmelBecic/spendless-ai-be.git
@@ -63,8 +63,9 @@ curl localhost:3000/health  # {"status":"ok"}
 ### Configuration
 
 Every variable is documented in [`.env.example`](.env.example); `.env` is git-ignored and must never
-be committed. `DATABASE_URL` is the only hard requirement to boot; `SUPABASE_URL` and
-`SUPABASE_JWKS_URL` are additionally required by `server.ts` to verify auth tokens.
+be committed. `DATABASE_URL` is required to boot, and `SUPABASE_URL` is additionally required by
+`server.ts` to verify auth tokens. `SUPABASE_JWKS_URL` is optional — it defaults to
+`<SUPABASE_URL>/auth/v1/.well-known/jwks.json` and only needs setting for a non-standard endpoint.
 
 A test asserts `.env.example` and the env schema stay in sync, so a newly-added variable cannot ship
 undocumented.

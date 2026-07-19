@@ -20,6 +20,23 @@ export interface AuthVerifier {
   verify(token: string): Promise<AuthenticatedUser>;
 }
 
+/**
+ * The auth endpoints for a Supabase project URL. JWKS is derived from the
+ * issuer rather than configured separately — requiring an operator to set a URL
+ * that is mechanically derivable from one they already set is a setup footgun —
+ * and an override stays available for a non-standard endpoint. A blank override
+ * is treated as absent, so `SUPABASE_JWKS_URL=` copied from `.env.example`
+ * still yields the default.
+ */
+export function supabaseAuthEndpoints(
+  supabaseUrl: string,
+  jwksUrlOverride?: string,
+): { issuer: string; jwksUrl: string } {
+  const issuer = `${supabaseUrl.replace(/\/+$/, "")}/auth/v1`;
+  const override = jwksUrlOverride?.trim();
+  return { issuer, jwksUrl: override || `${issuer}/.well-known/jwks.json` };
+}
+
 // Supabase issues end-user access tokens with `aud: "authenticated"` AND
 // `role: "authenticated"`; anon/service credentials carry a different `role`.
 const SUPABASE_AUDIENCE = "authenticated";

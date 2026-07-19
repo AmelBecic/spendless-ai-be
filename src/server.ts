@@ -5,7 +5,7 @@ import "dotenv/config";
 import { loadEnv } from "./config/env";
 import { createPool, pingPool } from "./db/pool";
 import { prisma } from "./db/client";
-import { createSupabaseAuthVerifier } from "./auth/verifier";
+import { createSupabaseAuthVerifier, supabaseAuthEndpoints } from "./auth/verifier";
 import { createPrismaProfileStore } from "./auth/profile-store";
 import { withProvisioningCache } from "./auth/provisioning-cache";
 import { createRepositories } from "./repositories";
@@ -13,16 +13,13 @@ import { buildApp } from "./app";
 
 async function main(): Promise<void> {
   const config = loadEnv();
-  // SUPABASE_URL alone identifies the project; requiring a second var that is
-  // mechanically derivable from it is a setup footgun, so JWKS_URL defaults off
-  // it and stays overridable for a non-standard endpoint.
+  // SUPABASE_URL alone identifies the project — the JWKS endpoint is derived
+  // from it (see supabaseAuthEndpoints).
   if (!config.SUPABASE_URL) {
     throw new Error("SUPABASE_URL is required to verify auth tokens");
   }
   const pool = createPool(config);
-  // Supabase's issuer is `<project-url>/auth/v1`.
-  const issuer = `${config.SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`;
-  const jwksUrl = config.SUPABASE_JWKS_URL ?? `${issuer}/.well-known/jwks.json`;
+  const { issuer, jwksUrl } = supabaseAuthEndpoints(config.SUPABASE_URL, config.SUPABASE_JWKS_URL);
   const auth = {
     verifier: createSupabaseAuthVerifier({ jwksUrl, issuer }),
     profiles: withProvisioningCache(createPrismaProfileStore(prisma)),
