@@ -8,7 +8,7 @@ import type { ProfileSummariesRepository } from "../repositories/profile-summari
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { LlmClient } from "../agent/anthropic";
 import { MODEL } from "../agent/anthropic";
-import { emptyCategories, unusedLlm, unusedSummaries } from "../test/stubs";
+import { emptyCategories, unusedLlm, unusedSuggestions, unusedSummaries } from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -139,6 +139,7 @@ function appWith(options: {
       transactions: fakeTransactions(options.transactions ?? []),
       profiles: fakeProfiles(options.profiles ?? [profileRow(USER)]),
       summaries: options.summaries ? fakeSummaries(options.summaries) : unusedSummaries,
+      suggestions: unusedSuggestions,
     },
   });
 }

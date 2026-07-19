@@ -88,6 +88,36 @@ first. This list grows every time the reviewer catches something that could have
       forward to 2026-03-03, filing data under the wrong month. Verify the day against the month's
       real length. (SLAI-10.)
 
+## LLM agents (grounding & cost)
+- [ ] **Whatever the prompt renders, the grounding scan must allow back.** An allow-list built from
+      one source while the payload shows another rejects the model for faithfully quoting a figure
+      this code handed it. Cross-check the allow-list against the *payload builder*, not against the
+      type the figures came from. (SLAI-18: the payload rendered `discretionaryByCategory` totals and
+      commitment amounts; the scan only allowed `SpendStats`.)
+- [ ] **A grounding fixture must not let the expected figure coincide with an allowed one.** A single
+      category whose total equals `discretionaryTotal`, or a percentage that matches the daily
+      average, passes with the bug still in. Pick values that appear in exactly one place, and prove
+      the test fails when the fix is reverted. (SLAI-18: caught twice — the reviewer found the first,
+      and reverting the fix showed the replacement test still passed.)
+- [ ] **Don't enforce a list cap in the response schema.** `.max()` fails the whole parse, so one
+      over-eager completion costs every good item in it plus the spend. Truncate after parsing and
+      record the excess like any other dropped item. (SLAI-18.)
+- [ ] **A "cheapest guard" that keys on written rows never fires when the pass writes none.** An empty
+      outcome leaves nothing to short-circuit on, so the user likeliest to produce no output is the
+      one who pays for a completion on every retry. Record *that a pass ran*, separately from what it
+      produced. (SLAI-18: partly deferred to SLAI-19 — needs a table.)
+- [ ] **Compute money in code, never in the completion** — give the model a qualitative lever and
+      keep the rates as constants. And bound the computed figure: a rate scaled up from a partial
+      period can exceed int4 even when every input is valid.
+
+## Concurrency
+- [ ] **Read-then-write across a slow call is not an invariant.** Two requests both clear an existence
+      check and both insert. If the invariant is "one set per X" and a set is several rows, a unique
+      constraint cannot express it — serialise on the parent row (`SELECT … FOR UPDATE` inside the
+      transaction) instead. Never hold a transaction open across a model call. (SLAI-18.)
+- [ ] Prove a concurrency fix by removing it and watching the test fail — a passing test around a race
+      proves nothing on its own.
+
 ## Secrets & tests
 - [ ] No secrets committed; `.env` git-ignored; every key documented in `.env.example`.
 - [ ] Unit tests cover the invariants a refactor could silently break (fixed sets, idempotency, guards).

@@ -136,6 +136,30 @@ export function proratedCents(expense: FixedExpense, days: number): number {
   return Math.round((expense.money.amountCents * days) / CADENCE_DAYS[expense.cadence]);
 }
 
+/** The average calendar month in days — `CADENCE_DAYS.monthly` under a name that reads. */
+export const DAYS_PER_MONTH = CADENCE_DAYS.monthly;
+
+/**
+ * What a fixed expense costs per average month, whatever cadence it is billed on.
+ * A monthly commitment returns its own amount unchanged, which is the property
+ * that makes "cancel this and save X" quotable rather than approximate.
+ */
+export function monthlyEquivalentCents(expense: FixedExpense): number {
+  return proratedCents(expense, DAYS_PER_MONTH);
+}
+
+/**
+ * Spend observed over `days` restated as a monthly rate.
+ *
+ * The stats period is month-to-date, so a category's total on the 5th covers
+ * five days, not a month. Quoting it as a monthly saving would understate it
+ * early in the month and drift all month long; scaling to the average month
+ * gives a figure that means the same thing on every day it is computed.
+ */
+export function monthlyRateCents(periodCents: number, days: number): number {
+  return Math.round((periodCents * DAYS_PER_MONTH) / days);
+}
+
 interface WindowTotals {
   discretionary: Money;
   recurring: Money;
@@ -175,7 +199,8 @@ function categoryTotals(
     cents.set(categoryId, (cents.get(categoryId) ?? 0) + amount);
   };
 
-  for (const transaction of transactions) addTo(transaction.categoryId, transaction.money.amountCents);
+  for (const transaction of transactions)
+    addTo(transaction.categoryId, transaction.money.amountCents);
   for (const expense of expenses) addTo(expense.categoryId, proratedCents(expense, days));
 
   return (
@@ -192,6 +217,28 @@ function categoryTotals(
         share: totalCents === 0 ? 0 : Math.round((amountCents / totalCents) * 1e4) / 1e4,
       }))
   );
+}
+
+/**
+ * Spend by category from transactions alone — the part of a category the user
+ * could actually choose to spend less on.
+ *
+ * `SpendStats.byCategory` deliberately folds in prorated commitments, which is
+ * right for reporting and wrong for advice: a category dominated by rent is not
+ * a fifth trimmable, and pricing a suggestion off it would quote a saving no
+ * change in behaviour could reach. `share` is therefore a share of discretionary
+ * spend, not of the period total.
+ */
+export function discretionaryByCategory(
+  transactions: Transaction[],
+  currency: string,
+): CategoryTotal[] {
+  const totalCents = transactions.reduce(
+    (acc, transaction) => acc + transaction.money.amountCents,
+    0,
+  );
+  // No expenses, so the day count cannot be consulted — nothing is prorated.
+  return categoryTotals(currency, transactions, [], 0, totalCents);
 }
 
 /**

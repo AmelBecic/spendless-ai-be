@@ -10,6 +10,7 @@ import {
   unusedLlm,
   unusedProfiles,
   unusedSummaries,
+  unusedSuggestions,
 } from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
@@ -128,6 +129,7 @@ function appWith(
       transactions,
       profiles: unusedProfiles,
       summaries: unusedSummaries,
+      suggestions: unusedSuggestions,
     },
   });
 }

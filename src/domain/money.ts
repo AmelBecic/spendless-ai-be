@@ -3,6 +3,16 @@
 
 import type { Money } from "./types";
 
+/**
+ * The largest amount a cents column can hold: Prisma `Int` is Postgres int4.
+ *
+ * A storage bound, not a product rule, and it constrains two different things —
+ * amounts arriving from a client (see routes/fields.ts) and amounts this code
+ * computes. Either can overflow the column, and an overflow surfaces as a 500
+ * from the database rather than as anything the caller can act on.
+ */
+export const INT4_MAX = 2_147_483_647;
+
 /** Thrown when an operation would combine amounts in different currencies. */
 export class MixedCurrencyError extends Error {
   constructor(a: string, b: string) {

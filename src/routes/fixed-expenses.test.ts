@@ -12,6 +12,7 @@ import {
   unusedLlm,
   unusedProfiles,
   unusedSummaries,
+  unusedSuggestions,
   unusedTransactions,
 } from "../test/stubs";
 
@@ -112,6 +113,7 @@ function appWith(expenses: FixedExpensesRepository, auth = acceptingAuth, cats =
       transactions: unusedTransactions,
       profiles: unusedProfiles,
       summaries: unusedSummaries,
+      suggestions: unusedSuggestions,
     },
   });
 }

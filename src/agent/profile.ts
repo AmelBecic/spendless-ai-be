@@ -161,7 +161,13 @@ function normalizeFigure(value: number): string {
   return (Math.round(value * 100) / 100).toString();
 }
 
-function addMoneyFigures(allowed: Set<string>, money: Money): void {
+/**
+ * Permit an amount in either denomination. Exported because any agent that
+ * *renders* a figure into its prompt has to allow it back: the grounding scan
+ * cannot tell a number the model invented from one this code handed it, so
+ * whatever a payload shows must be added here or a faithful quote is rejected.
+ */
+export function addMoneyFigures(allowed: Set<string>, money: Money): void {
   const cents = money.amountCents;
   const major = cents / 100;
   // Both denominations, since the model may quote either, and both the rounded
@@ -171,6 +177,17 @@ function addMoneyFigures(allowed: Set<string>, money: Money): void {
     allowed.add(normalizeFigure(value));
     allowed.add(normalizeFigure(Math.abs(value)));
   }
+}
+
+/**
+ * Permit a 0..1 share as the percentage a payload renders it as, at each
+ * rounding a model might reasonably quote it back with.
+ */
+export function addShareFigures(allowed: Set<string>, share: number): void {
+  const pct = share * 100;
+  allowed.add(normalizeFigure(pct));
+  allowed.add(normalizeFigure(Math.round(pct)));
+  allowed.add(normalizeFigure(Math.round(pct * 10) / 10));
 }
 
 /**
@@ -203,10 +220,7 @@ export function allowedFigures(stats: SpendStats, newTransactions: Transaction[]
 
   for (const entry of stats.byCategory) {
     addMoneyFigures(allowed, entry.total);
-    const pct = entry.share * 100;
-    allowed.add(normalizeFigure(pct));
-    allowed.add(normalizeFigure(Math.round(pct)));
-    allowed.add(normalizeFigure(Math.round(pct * 10) / 10));
+    addShareFigures(allowed, entry.share);
   }
 
   const period: Period = { start: stats.periodStart, end: stats.periodEnd };
