@@ -22,6 +22,10 @@ const EnvSchema = z.object({
   SUPABASE_URL: optionalNonEmpty,
   SUPABASE_ANON_KEY: optionalNonEmpty,
   SUPABASE_JWKS_URL: optionalNonEmpty,
+  // Anthropic API (SLAI-16). Server-side only — never reaches a client. Optional
+  // here so tests and tooling load without it; the LLM seam fails loudly at
+  // construction when it is missing rather than at the first call.
+  ANTHROPIC_API_KEY: optionalNonEmpty,
 });
 
 export type Env = z.infer<typeof EnvSchema>;
