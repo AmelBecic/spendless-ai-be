@@ -14,7 +14,7 @@ import { aggregate, discretionaryByCategory } from "./aggregate";
 import { profilePeriod } from "./profile-refresh";
 import { loadLedger } from "./stats";
 import type { LlmClient } from "./anthropic";
-import { runSuggestionAgent } from "./suggest";
+import { runSuggestionAgent, suggestibleExpenses } from "./suggest";
 
 /** Minimal logging surface, matching the LLM seam's — no coupling to Fastify. */
 export interface SuggestLogger {
@@ -63,13 +63,28 @@ export async function refreshSuggestions(
   if (!ledger) throw new AppError(404, "NOT_FOUND", "profile not found");
 
   const stats = aggregate(period, ledger);
+  const discretionary = discretionaryByCategory(ledger.transactions, ledger.currency);
+  const suggestible = suggestibleExpenses(ledger.fixedExpenses, ledger.currency);
+
+  // Nothing to trim and nothing to cancel, so there is no suggestion the model
+  // could ground in anything. Worth checking explicitly: a user with an empty or
+  // near-empty ledger is both the likeliest to produce no suggestions *and* the
+  // one whose every retry would otherwise buy a completion that returns nothing.
+  //
+  // It does not close the hole entirely — a pass whose proposals are all dropped
+  // still writes no rows, so the day never gets a set to short-circuit on and the
+  // next refresh pays again. Recording "a pass ran today" independently of its
+  // output needs a row this schema has no table for; that belongs with the rest
+  // of the cost guardrails in SLAI-19.
+  if (discretionary.length === 0 && suggestible.length === 0) return [];
+
   const categories = await deps.categories.list();
   const categoryLabels = Object.fromEntries(categories.map((c) => [c.id, c.label]));
 
   const result = await runSuggestionAgent(deps.llm, {
     profile,
     stats,
-    discretionaryByCategory: discretionaryByCategory(ledger.transactions, ledger.currency),
+    discretionaryByCategory: discretionary,
     fixedExpenses: ledger.fixedExpenses,
     categoryLabels,
   });

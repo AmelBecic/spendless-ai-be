@@ -300,6 +300,19 @@ describe.skipIf(!hasTestDatabase)("/suggestions (integration)", () => {
     expect(await testDb().suggestion.count({ where: { userId: userA } })).toBe(1);
   });
 
+  it("does not pay for a completion when there is nothing to suggest", async () => {
+    // user-B has no transactions and no commitments, so no suggestion could be
+    // grounded in anything — the model must not be called at all. This is the
+    // user whose every retry would otherwise buy an empty answer.
+    proposals = [trim(foodId)];
+
+    const res = await refresh(userB);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().suggestions).toHaveLength(0);
+    expect(requests).toHaveLength(0);
+  });
+
   it("writes one set when two refreshes race", async () => {
     await spend(userA, 20000, foodId);
     proposals = [trim(foodId), cancel(gymId)];

@@ -5,6 +5,7 @@ import { MODEL } from "../agent/anthropic";
 import {
   buildSuggestionInput,
   knownSourceRefs,
+  MAX_SUGGESTIONS,
   runSuggestionAgent,
   SUGGEST_SYSTEM_PROMPT,
   TRIM_RATES,
@@ -262,6 +263,45 @@ describe("runSuggestionAgent — grounding", () => {
     expect(result.suggestions).toHaveLength(1);
   });
 
+  it("keeps prose quoting a category amount only the payload showed", async () => {
+    // 150.00 and 75% exist ONLY in the discretionary breakdown — `stats` holds
+    // food at 200.00 and an 80% share, and neither 150 nor 75 appears anywhere
+    // else in it. Picking figures that coincide with a stat (transport's 50.00,
+    // or the 25.00 daily average) would let this pass without the fix, which is
+    // how the single-category version of this test fooled itself.
+    const twoCategories: CategoryTotal[] = [
+      { categoryId: FOOD, total: { amountCents: 15000, currency: "EUR" }, share: 0.75 },
+      { categoryId: TRANSPORT, total: { amountCents: 5000, currency: "EUR" }, share: 0.25 },
+    ];
+
+    const result = await run(
+      [
+        proposal({
+          rationale: "Food is 150.00 EUR, about 75% of what you chose to spend.",
+        }),
+      ],
+      { discretionaryByCategory: twoCategories },
+    );
+
+    expect(result.dropped).toHaveLength(0);
+    expect(result.suggestions).toHaveLength(1);
+  });
+
+  it("keeps prose quoting a commitment's own amount", async () => {
+    // Rendered into the payload by `buildSuggestionInput`, so it is a reading of
+    // the data rather than a figure the model produced.
+    const result = await run([
+      proposal({
+        kind: "cancel_recurring",
+        targetId: GYM,
+        rationale: "The gym is 40.00 EUR every month.",
+      }),
+    ]);
+
+    expect(result.dropped).toHaveLength(0);
+    expect(result.suggestions).toHaveLength(1);
+  });
+
   it("drops a second suggestion against the same target", async () => {
     const result = await run([proposal(), proposal({ lever: "aggressive" })]);
 
@@ -299,6 +339,25 @@ describe("runSuggestionAgent — grounding", () => {
 
     expect(result.suggestions).toHaveLength(0);
     expect(result.dropped[0]?.reason).toBe("not-representable");
+  });
+
+  it("trims an over-long list instead of losing the whole completion", async () => {
+    // A model returning more than the cap must cost the excess, not the day's
+    // advice — a schema-level `.max()` would fail the parse and return nothing.
+    const many = Array.from({ length: MAX_SUGGESTIONS + 2 }, (_unused, index) =>
+      proposal({ targetId: `category-${index}` }),
+    );
+    const breakdown: CategoryTotal[] = many.map((item) => ({
+      categoryId: item.targetId,
+      total: { amountCents: 20000, currency: "EUR" },
+      share: 1 / many.length,
+    }));
+
+    const result = await run(many, { discretionaryByCategory: breakdown });
+
+    expect(result.suggestions).toHaveLength(MAX_SUGGESTIONS);
+    expect(result.dropped).toHaveLength(2);
+    expect(result.dropped.every((item) => item.reason === "over-limit")).toBe(true);
   });
 
   it("keeps the good suggestions when one of a batch is ungrounded", async () => {

@@ -24,7 +24,7 @@ import type {
 import { INT4_MAX } from "../domain/money";
 import { monthlyEquivalentCents, monthlyRateCents, periodDays, type Period } from "./aggregate";
 import type { LlmClient, LlmUsage } from "./anthropic";
-import { allowedFigures, findUngroundedFigures } from "./profile";
+import { addMoneyFigures, addShareFigures, allowedFigures, findUngroundedFigures } from "./profile";
 
 /** What kind of lever a suggestion pulls. */
 export type SuggestionKind = "trim_category" | "cancel_recurring";
@@ -91,6 +91,7 @@ export type DropReason =
   | "currency-mismatch"
   | "no-saving"
   | "not-representable"
+  | "over-limit"
   | "ungrounded-figure";
 
 export interface DroppedSuggestion {
@@ -115,19 +116,22 @@ export interface SuggestionAgentResult {
  * percentage and no currency field. The schema is the enforcement — a model
  * inclined to volunteer "saves €40/month" has nowhere to put it.
  */
+// Deliberately no `.max()` on the array. A schema bound would make one
+// over-eager completion fail validation outright, costing the user every
+// suggestion in it plus the spend — the opposite of this agent's rule that a bad
+// item is dropped rather than failing the call. The limit is applied after
+// parsing instead, where the excess is recorded like any other drop.
 const SuggestionAgentOutput = z.object({
-  suggestions: z
-    .array(
-      z.object({
-        kind: z.enum(["trim_category", "cancel_recurring"]),
-        /** A category id for `trim_category`, a fixed-expense id for `cancel_recurring`. */
-        targetId: z.string(),
-        lever: z.enum(["modest", "moderate", "aggressive"]),
-        text: z.string(),
-        rationale: z.string(),
-      }),
-    )
-    .max(MAX_SUGGESTIONS),
+  suggestions: z.array(
+    z.object({
+      kind: z.enum(["trim_category", "cancel_recurring"]),
+      /** A category id for `trim_category`, a fixed-expense id for `cancel_recurring`. */
+      targetId: z.string(),
+      lever: z.enum(["modest", "moderate", "aggressive"]),
+      text: z.string(),
+      rationale: z.string(),
+    }),
+  ),
 });
 
 /**
@@ -258,6 +262,30 @@ export function knownSourceRefs(
   return refs;
 }
 
+/**
+ * Every figure this agent's prose may contain.
+ *
+ * `allowedFigures` covers the stats block, but this payload also renders the
+ * discretionary breakdown and each suggestible commitment — figures that are
+ * *not* in `SpendStats` and would otherwise be rejected as fabrications. The
+ * rule is the same one the profiling agent follows for its transaction list:
+ * whatever the prompt shows, the scan must accept back.
+ */
+export function allowedSuggestionFigures(input: SuggestionAgentInput): Set<string> {
+  const { stats, discretionaryByCategory, fixedExpenses } = input;
+  // No transactions are shown to this agent, so only the stats ground it.
+  const allowed = allowedFigures(stats, []);
+
+  for (const entry of discretionaryByCategory) {
+    addMoneyFigures(allowed, entry.total);
+    addShareFigures(allowed, entry.share);
+  }
+  for (const expense of suggestibleExpenses(fixedExpenses, stats.currency)) {
+    addMoneyFigures(allowed, expense.money);
+  }
+  return allowed;
+}
+
 /** One validated proposal, or the reason it was dropped. */
 type Priced = { ok: true; suggestion: GroundedSuggestion } | { ok: false; reason: DropReason };
 
@@ -379,8 +407,7 @@ export async function runSuggestionAgent(
   });
 
   const period: Period = { start: stats.periodStart, end: stats.periodEnd };
-  // No transactions are shown to this agent, so only the stats ground its prose.
-  const allowed = allowedFigures(stats, []);
+  const allowed = allowedSuggestionFigures(input);
 
   const suggestions: GroundedSuggestion[] = [];
   const dropped: DroppedSuggestion[] = [];
@@ -391,6 +418,15 @@ export async function runSuggestionAgent(
     const reject = (reason: DropReason): void => {
       dropped.push({ kind, targetId, reason });
     };
+
+    // Enforced here rather than in the schema, so the overflow costs the excess
+    // proposals instead of the whole completion. Checked against what survived,
+    // not against the raw list — dropping three ungrounded items should not stop
+    // a sixth good one from taking a free slot.
+    if (suggestions.length >= MAX_SUGGESTIONS) {
+      reject("over-limit");
+      continue;
+    }
 
     // Two suggestions against one target are two bites of the same saving; the
     // totals would double-count if a client ever summed the feed.
