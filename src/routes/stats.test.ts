@@ -266,6 +266,28 @@ describe("GET /stats", () => {
     await app.close();
   });
 
+  it("accepts a period of exactly the maximum span", async () => {
+    const app = appWith({});
+    // 2026-01-01..2027-01-01 inclusive is 366 days.
+    const res = await get(app, "/stats?from=2026-01-01&to=2027-01-01");
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("rejects an oversized period before issuing a single query", async () => {
+    // The repository throws if touched, so a 400 here proves the span was
+    // rejected up front rather than after two full cursor walks.
+    const untouchable: TransactionsRepository = {
+      ...fakeTransactions([]),
+      list: () => Promise.reject(new Error("repository must not be queried")),
+    };
+    const app = appWith({ transactionsRepo: untouchable });
+
+    const res = await get(app, "/stats?from=2020-01-01&to=2026-07-12");
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
   it("refuses a period holding more transactions than it will aggregate", async () => {
     // Always a full page with a further cursor, so the walk runs into its cap.
     const endless: TransactionsRepository = {
@@ -308,6 +330,9 @@ describe("GET /stats", () => {
       ["a malformed date", "from=yesterday"],
       ["a date-time with no zone designator", "from=2026-07-01T00:30:00"],
       ["an unknown parameter", "from=2026-07-06&groupBy=merchant"],
+      ["a period wider than a year", "from=2026-01-01&to=2027-01-02"],
+      // A lone `from` widens the window just as effectively as naming both ends.
+      ["an open-ended period reaching back past the limit", "from=1900-01-01"],
     ];
 
     it.each(badRequests)("400s on %s", async (_label, query) => {

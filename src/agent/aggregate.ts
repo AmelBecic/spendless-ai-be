@@ -107,12 +107,20 @@ function assertSingleCurrency(currency: string, amounts: Money[]): void {
  * before the row's creation reports zero recurring spend, so a freshly onboarded
  * user's entire history looks rent-free.
  *
- * The cost is that a genuinely new commitment is charged to earlier windows too,
- * so it cancels out of `momDeltaCents` instead of showing up as an increase.
- * Period-accurate attribution needs the schema to carry `startedAt` and
- * `endedAt` on a fixed expense; until it does, treating the active set as a
- * standing rate is the honest reading, and `active` at least keeps a cancelled
- * commitment out of the current picture.
+ * That leaves two known distortions, in opposite directions, and both are the
+ * same missing column rather than a filter that could be made cleverer:
+ *
+ * - A genuinely new commitment is charged to earlier windows too, so it cancels
+ *   out of `momDeltaCents` instead of showing up as an increase.
+ * - `active` is read as though it had always been true. Cancelling a gym
+ *   membership today empties it out of the months it was demonstrably paid,
+ *   changing stats for periods that have already closed — so a figure here is
+ *   reproducible from a given ledger, but not stable across edits to that
+ *   ledger.
+ *
+ * Fixing either needs `startedAt`/`endedAt` on a fixed expense. Until the schema
+ * carries them, treating the active set as a standing rate is the honest
+ * reading; anything else invents a date the database does not have.
  */
 export function activeExpenses(expenses: FixedExpense[]): FixedExpense[] {
   return expenses.filter((expense) => expense.active);
@@ -198,10 +206,14 @@ export function aggregate(period: Period, ledger: Ledger): SpendStats {
   const days = periodDays(period);
   const previous = previousPeriod(period);
 
+  // Only the amounts that actually reach a total are guarded. A deactivated
+  // commitment in some other currency contributes to nothing, and rejecting on
+  // it would take /stats down entirely for a row the caller cannot see and no
+  // figure depends on.
   assertSingleCurrency(ledger.currency, [
     ...ledger.transactions.map((transaction) => transaction.money),
     ...ledger.previousTransactions.map((transaction) => transaction.money),
-    ...ledger.fixedExpenses.map((expense) => expense.money),
+    ...activeExpenses(ledger.fixedExpenses).map((expense) => expense.money),
   ]);
 
   const current = windowTotals(ledger.currency, ledger.transactions, ledger.fixedExpenses, period);

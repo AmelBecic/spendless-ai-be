@@ -77,7 +77,10 @@ first. This list grows every time the reviewer catches something that could have
       the past: a user who types in standing rent today gets zero recurring spend for every prior
       period. If the domain needs "when did this start", add `startedAt`/`endedAt` — don't proxy it.
       (SLAI-11: caught only by an integration test, because unit fixtures set `createdAt` by hand and
-      every real row gets `now()`.)
+      every real row gets `now()`.) The mirror case is a **boolean status flag read as though it had
+      always held** — filtering history on `active` empties closed periods of things that were
+      genuinely paid then, so an aggregate over a closed period silently changes when a user edits a
+      row today. Both directions are the same missing `startedAt`/`endedAt` pair.
 - [ ] **Aggregates must read every page.** A total over one page of a cursor-paged repository is just
       a wrong number. Walk the cursor, and bound the walk with an error rather than a silent
       truncation — a capped total is indistinguishable from a real one. (SLAI-11.)

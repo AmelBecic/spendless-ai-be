@@ -92,7 +92,17 @@ export interface SpendStats {
   discretionaryTotal: Money;
   dailyAverage: Money;
   weeklyAverage: Money;
-  /** Signed change in total spend vs the previous comparable period, in cents. */
+  /**
+   * Signed change in total spend against the window of equal length ending the
+   * day before this one starts, in cents.
+   *
+   * Read the comparison literally: it is a *trailing* window, not the same dates
+   * of the previous calendar month. Month-to-date on 19 July is therefore
+   * compared against 12–30 June, not 1–19 June. Equal length is what keeps the
+   * figure meaningful for the arbitrary `from`/`to` the endpoint accepts — a
+   * 10-day window has no "previous month" to compare against, and against a
+   * fixed calendar month it would always look cheaper.
+   */
   momDeltaCents: number;
 }
 

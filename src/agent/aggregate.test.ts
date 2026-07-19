@@ -109,6 +109,15 @@ describe("previousPeriod", () => {
       end: "2026-06-30",
     });
   });
+
+  it("compares month-to-date against a trailing window, not the same dates last month", () => {
+    // Pinned because the name `momDeltaCents` invites the other reading: a
+    // 19-day July window looks back at 12–30 June, not 1–19 June.
+    expect(previousPeriod({ start: "2026-07-01", end: "2026-07-19" })).toEqual({
+      start: "2026-06-12",
+      end: "2026-06-30",
+    });
+  });
 });
 
 describe("proratedCents", () => {
@@ -308,6 +317,20 @@ describe("aggregate", () => {
           previousTransactions: [tx(3000, FOOD, "2026-07-02", "USD")],
         }),
       ).toThrow(MixedCurrencyError);
+    });
+
+    it("ignores a deactivated expense in another currency", () => {
+      // It contributes to no total, so rejecting on it would take /stats down
+      // over a row the caller cannot see and no reported figure depends on.
+      const stats = aggregate(PERIOD, {
+        ...ledger(),
+        fixedExpenses: [
+          fixed(5000, HEALTH, "weekly"),
+          fixed(9999, HEALTH, "weekly", { active: false, currency: "USD" }),
+        ],
+      });
+
+      expect(stats.recurringTotal).toEqual(eur(5000));
     });
 
     it("throws when the ledger is uniform but disagrees with the profile currency", () => {

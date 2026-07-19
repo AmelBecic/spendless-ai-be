@@ -12,10 +12,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { SpendStats } from "../domain/types";
 import { MixedCurrencyError } from "../domain/money";
-import { aggregate, type Period } from "../agent/aggregate";
+import { aggregate, periodDays, type Period } from "../agent/aggregate";
 import { LedgerTooLargeError, loadLedger, type LedgerDeps } from "../agent/stats";
 import { requireUser } from "../auth/plugin";
-import { AppError } from "../http/errors";
+import { AppError, ValidationError } from "../http/errors";
 import { parseOrThrow } from "../http/validation";
 import { isoDate } from "./fields";
 
@@ -55,11 +55,33 @@ function resolvePeriod(query: { from?: string; to?: string }, now: Date): Period
   return { start, end };
 }
 
+/**
+ * The widest window /stats will report on — a year, leap year included, which
+ * covers the broadest span the surface is meant for.
+ *
+ * Checked against the *resolved* period rather than the raw query, since a lone
+ * `?from=1900-01-01` widens the window just as effectively as naming both ends.
+ * Rejecting here matters because the cost is paid before the ledger's own cap
+ * can trip: an unbounded span sends `loadLedger` on two sequential cursor walks
+ * (the period, plus the equal-length one behind it) that do the full amount of
+ * database work and then throw it away. A 400 up front costs one comparison.
+ */
+export const MAX_PERIOD_DAYS = 366;
+
+function assertPeriodWithinLimit(period: Period): void {
+  if (periodDays(period) > MAX_PERIOD_DAYS) {
+    throw new ValidationError([
+      { path: "from", message: `period must span at most ${MAX_PERIOD_DAYS} days` },
+    ]);
+  }
+}
+
 export function registerStatsRoute(app: FastifyInstance, deps: StatsDeps): void {
   app.get("/stats", { preHandler: app.authenticate }, async (req): Promise<StatsResponse> => {
     const user = requireUser(req);
     const query = parseOrThrow(StatsQuery, req.query, "invalid query parameters");
     const period = resolvePeriod(query, new Date());
+    assertPeriodWithinLimit(period);
 
     try {
       const ledger = await loadLedger(deps, user.id, period);
