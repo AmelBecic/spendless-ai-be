@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "eval": "tsx evals/run.ts",
     "secrets": "gitleaks detect --no-banner",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
