@@ -5,6 +5,18 @@
 // itself under test: the degenerate cases pass only if no completion was bought,
 // so a runner that called the agent first and filtered afterwards would score
 // them zero, which is the correct verdict on that implementation.
+//
+// The two agents are independent passes, not a pipeline, and the harness runs
+// them the way production does:
+//
+//   - `refreshSuggestions` never calls `runProfileAgent`. It reads the last
+//     *persisted* summary via `summaries.latest(userId)` and hands that to the
+//     suggestion agent. `evalCase.previousSummary` is that value — which is why
+//     the freshly computed profile below is scored but deliberately not fed
+//     forward. Threading it in would make this harness measure a pipeline the
+//     service does not have.
+//   - The profiling pass belongs to `POST /profile/refresh`. It is run here so
+//     the narrative's grounding is scored too, and it is scored separately.
 
 import type { CategoryTotal, SpendStats } from "../src/domain/types";
 import { aggregate, discretionaryByCategory } from "../src/agent/aggregate";

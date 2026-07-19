@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { LlmClient, LlmRequest } from "../src/agent/anthropic";
 import { CASES, CASE_IDS, TARGET_IDS, type EvalCase } from "./cases";
 import { runCase } from "./runner";
 import { scriptedLlm } from "./stub";
@@ -91,6 +92,32 @@ describe("runCase — the ordinary path", () => {
     expect(outcome.profileError).not.toBeNull();
     expect(outcome.profile).toBeNull();
     expect(outcome.suggestions.suggestions).toHaveLength(2);
+  });
+});
+
+describe("runCase — the returning user", () => {
+  it("renders the persisted summary into the suggestion payload", async () => {
+    const returning = caseById(CASE_IDS.returningUser);
+    const seen: LlmRequest<unknown>[] = [];
+    const scripted = scriptedLlm(returning.script);
+    const recording: LlmClient = {
+      complete: <T>(request: LlmRequest<T>) => {
+        seen.push(request as LlmRequest<unknown>);
+        return scripted.complete(request);
+      },
+    };
+
+    const outcome = await runCase(recording, returning);
+    expect(outcome.kind).toBe("suggestions");
+
+    // Every other fixture is a first refresh, so without this case the branch that
+    // renders a real profile into the payload is never taken — the model would be
+    // shown "(none — this user has not been profiled yet)" in all six runs.
+    const suggestionRequest = seen.find((request) => request.schemaName === "savings_suggestions");
+    expect(suggestionRequest?.input).toContain(
+      "Food has consistently been where most of your discretionary money goes.",
+    );
+    expect(suggestionRequest?.input).not.toContain("has not been profiled yet");
   });
 });
 

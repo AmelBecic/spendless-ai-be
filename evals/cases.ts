@@ -398,12 +398,107 @@ const mixedCurrencyLedger: EvalCase = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// 6. returning-user — someone who has been profiled before.
+// ---------------------------------------------------------------------------
+//
+//   period        2026-07-01..2026-07-10 -> 10 days
+//   discretionary Food 24000, Transport 6000                       -> 30000
+//   recurring     gym round(4000 * 10 / 30.4375) = 1314
+//   total         30000 + 1314                                     -> 31314
+//   dailyAverage  round(31314 / 10)                                ->  3131
+//   previous      Food 18000 + the same 1314 recurring             -> 19314
+//   momDelta      31314 - 19314                                    -> 12000
+//
+//   Food monthly rate      round(24000 * 30.4375 / 10) = 73050
+//     modest 7305 | moderate 14610 | aggressive 21915
+//   Transport monthly rate round(6000 * 30.4375 / 10)  = 18263
+//     modest 1826 | moderate 3653 | aggressive 5479
+//   gym cancel                                          =  4000
+//
+// The only case with a non-null `previousSummary`. Every other fixture is a first
+// refresh, which left the branch that renders a real profile into the suggestion
+// payload — the returning user, i.e. most users — entirely unexercised.
+const returningUser: EvalCase = {
+  id: "returning-user",
+  description: "A user with an existing profile summary from a previous run",
+  period: { start: "2026-07-01", end: "2026-07-10" },
+  ledger: {
+    currency: "EUR",
+    transactions: [
+      transaction("t-1", FOOD, 24000, "2026-07-03"),
+      transaction("t-2", TRANSPORT, 6000, "2026-07-05"),
+    ],
+    previousTransactions: [transaction("t-0", FOOD, 18000, "2026-06-24")],
+    fixedExpenses: [expense(GYM, "Gym membership", WELLNESS, 4000, "monthly")],
+  },
+  categoryLabels: CATEGORY_LABELS,
+  // Deliberately free of figures. The summary is rendered into the suggestion
+  // payload but is not part of the allowed-figures set, so a number here would be
+  // one the model could quote back and the scan would then reject — a property of
+  // the fixture, not of the agent, and not what this case is for.
+  previousSummary: {
+    id: "33333333-3333-4333-8333-000000000001",
+    userId: "eval-user",
+    asOfDate: "2026-06-30",
+    summary: {
+      habits: ["Buys lunch out on weekdays"],
+      trends: ["Food has been the dominant category for several periods"],
+      notableChanges: [],
+    },
+    narrative: "Food has consistently been where most of your discretionary money goes.",
+    model: "claude-opus-4-8",
+    createdAt: "2026-06-30T00:00:00.000Z",
+  },
+  expected: {
+    outcome: "suggestions",
+    stats: {
+      totalCents: 31314,
+      discretionaryCents: 30000,
+      recurringCents: 1314,
+      dailyAverageCents: 3131,
+      momDeltaCents: 12000,
+    },
+    savingsByTarget: {
+      [FOOD]: [7305, 14610, 21915],
+      [TRANSPORT]: [1826, 3653, 5479],
+      [GYM]: [4000],
+    },
+    forbiddenTargets: [],
+  },
+  script: {
+    profile: {
+      habits: ["Buys lunch out on weekdays"],
+      trends: ["Food remains the dominant category"],
+      notableChanges: ["Spending is up against the previous window"],
+      narrative: "Food is still where most of your discretionary money goes, ahead of transport.",
+    },
+    suggestions: [
+      {
+        kind: "trim_category",
+        targetId: FOOD,
+        lever: "moderate",
+        text: "Bring lunch from home twice a week to cut your Food spending.",
+        rationale: "Food has stayed your largest discretionary category since the last summary.",
+      },
+      {
+        kind: "cancel_recurring",
+        targetId: GYM,
+        lever: "modest",
+        text: "Drop the Gym membership if it is going unused.",
+        rationale: "It is your only standing commitment and nothing suggests it is being used.",
+      },
+    ],
+  },
+};
+
 export const CASES: EvalCase[] = [
   steadyEater,
   commitmentsOnly,
   emptyLedger,
   noNewActivity,
   mixedCurrencyLedger,
+  returningUser,
 ];
 
 /** Ids exported so the unit tests can name a case without re-declaring the fixture. */
@@ -413,6 +508,7 @@ export const CASE_IDS = {
   emptyLedger: emptyLedger.id,
   noNewActivity: noNewActivity.id,
   mixedCurrencyLedger: mixedCurrencyLedger.id,
+  returningUser: returningUser.id,
 } as const;
 
 export const TARGET_IDS = {

@@ -92,6 +92,11 @@ The agent is scored, not vibed. `npm run eval` runs every case in [`evals/`](eva
 per-case and aggregate score, and **exits non-zero if any score has fallen** against the committed
 baseline in [`evals/baseline.json`](evals/baseline.json).
 
+Each mode keeps its own baseline — `baseline.json` for `stub`, `baseline.live.json` for `--live` —
+so re-recording a live run cannot overwrite the stub gate. Re-record with
+`npm run eval -- --update-baseline` (add `--live` for the live one). Exit codes: `0` clean, `1`
+regressed, `2` the harness itself failed.
+
 ### The five metrics
 
 | Metric                | What it asks                                                                                                                         |

@@ -88,26 +88,38 @@ export function compareToBaseline(report: EvalReport, baseline: Baseline): strin
     return regressions;
   }
 
-  const dropped = (was: MetricScore, now: MetricScore): boolean =>
-    was !== null && (now === null || now < was - EPSILON);
+  /**
+   * Why this run is worse on one metric, or `null` if it is not.
+   *
+   * The `null` baseline case is the subtle one. A metric recorded as `n/a` has no
+   * number to fall below, so a naive comparison leaves it permanently ungated —
+   * and four of the six cases carry nulls. If a regression makes `empty-ledger`
+   * start producing suggestions, its grounding goes from `n/a` to some real score,
+   * and treating that as "nothing to compare" means the gate stays silent while
+   * the applicability set changed underneath it. A metric that became applicable
+   * and did not score perfectly is therefore reported in its own right.
+   */
+  const regressionOf = (was: MetricScore, now: MetricScore): string | null => {
+    if (was === null) {
+      if (now === null || now >= 1 - EPSILON) return null;
+      return `${format(now)} (baseline n/a — this metric became applicable and did not score clean)`;
+    }
+    if (now === null) return `n/a (baseline ${format(was)} — this metric stopped being measured)`;
+    if (now < was - EPSILON) return `${format(now)} (baseline ${format(was)})`;
+    return null;
+  };
 
   for (const metric of METRICS) {
-    const was = baseline.metrics[metric] ?? null;
-    if (dropped(was, report.metrics[metric])) {
-      regressions.push(`${metric}: ${format(report.metrics[metric])} (baseline ${format(was)})`);
-    }
+    const change = regressionOf(baseline.metrics[metric] ?? null, report.metrics[metric]);
+    if (change) regressions.push(`${metric}: ${change}`);
   }
 
   for (const caseScore of report.cases) {
     const baselineCase = baseline.cases[caseScore.caseId];
     if (!baselineCase) continue; // A new case has nothing to regress against.
     for (const metric of METRICS) {
-      const was = baselineCase[metric] ?? null;
-      if (dropped(was, caseScore.scores[metric])) {
-        regressions.push(
-          `${caseScore.caseId} / ${metric}: ${format(caseScore.scores[metric])} (baseline ${format(was)})`,
-        );
-      }
+      const change = regressionOf(baselineCase[metric] ?? null, caseScore.scores[metric]);
+      if (change) regressions.push(`${caseScore.caseId} / ${metric}: ${change}`);
     }
   }
 

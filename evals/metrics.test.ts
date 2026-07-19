@@ -257,6 +257,36 @@ describe("compareToBaseline", () => {
     expect(compareToBaseline(better, baseline)).toEqual([]);
   });
 
+  it("flags a metric that became applicable and did not score clean", () => {
+    // The gap a plain "did the number fall?" comparison leaves open: `safety` was
+    // recorded as n/a, so there is no number to fall below. If `empty-ledger`
+    // started producing suggestions tomorrow, its safety score would appear out of
+    // nowhere and a naive gate would stay silent about it.
+    const changed = buildReport("stub", [
+      { caseId: "a", notes: [], scores: metricRow({ grounding: 1, correctness: 1, safety: 0.4 }) },
+    ]);
+
+    expect(compareToBaseline(changed, baseline).join(" ")).toMatch(/became applicable/);
+  });
+
+  it("does not flag a metric that became applicable and scored clean", () => {
+    const changed = buildReport("stub", [
+      { caseId: "a", notes: [], scores: metricRow({ grounding: 1, correctness: 1, safety: 1 }) },
+    ]);
+
+    expect(compareToBaseline(changed, baseline)).toEqual([]);
+  });
+
+  it("flags a metric that stopped being measured at all", () => {
+    // The mirror case: silently dropping a check would otherwise read as "no
+    // regression" forever.
+    const changed = buildReport("stub", [
+      { caseId: "a", notes: [], scores: metricRow({ grounding: null, correctness: 1 }) },
+    ]);
+
+    expect(compareToBaseline(changed, baseline).join(" ")).toMatch(/stopped being measured/);
+  });
+
   it("flags a case that was deleted rather than fixed", () => {
     const without = buildReport("stub", []);
 
