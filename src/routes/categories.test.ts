@@ -5,7 +5,13 @@ import type { Category } from "../domain/types";
 import type { CategoriesRepository } from "../repositories/categories";
 import type { AuthDeps } from "../auth/plugin";
 import { AppError } from "../http/errors";
-import { unusedFixedExpenses, unusedProfiles, unusedTransactions } from "../test/stubs";
+import {
+  unusedFixedExpenses,
+  unusedLlm,
+  unusedProfiles,
+  unusedSummaries,
+  unusedTransactions,
+} from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -26,7 +32,14 @@ function appWith(categories: CategoriesRepository, auth = acceptingAuth) {
     config: testConfig,
     db: { ping: async () => {} },
     auth,
-    repos: { categories, expenses: unusedFixedExpenses, transactions: unusedTransactions, profiles: unusedProfiles },
+    llm: unusedLlm,
+    repos: {
+      categories,
+      expenses: unusedFixedExpenses,
+      transactions: unusedTransactions,
+      profiles: unusedProfiles,
+      summaries: unusedSummaries,
+    },
   });
 }
 

@@ -4,7 +4,13 @@ import type { Env } from "../config/env";
 import type { Category, Transaction } from "../domain/types";
 import type { AuthDeps } from "../auth/plugin";
 import type { TransactionsRepository } from "../repositories/transactions";
-import { emptyCategories, unusedFixedExpenses, unusedProfiles } from "../test/stubs";
+import {
+  emptyCategories,
+  unusedFixedExpenses,
+  unusedLlm,
+  unusedProfiles,
+  unusedSummaries,
+} from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -115,7 +121,14 @@ function appWith(
     config: testConfig,
     db: { ping: async () => {} },
     auth,
-    repos: { categories: cats, expenses: unusedFixedExpenses, transactions, profiles: unusedProfiles },
+    llm: unusedLlm,
+    repos: {
+      categories: cats,
+      expenses: unusedFixedExpenses,
+      transactions,
+      profiles: unusedProfiles,
+      summaries: unusedSummaries,
+    },
   });
 }
 

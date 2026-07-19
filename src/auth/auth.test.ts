@@ -10,7 +10,7 @@ import {
 } from "jose";
 import { buildApp } from "../app";
 import type { Env } from "../config/env";
-import { unusedRepos } from "../test/stubs";
+import { unusedLlm, unusedRepos } from "../test/stubs";
 import { createJwtAuthVerifier, supabaseAuthEndpoints, type AuthVerifier } from "./verifier";
 import type { ProfileStore } from "./profile-store";
 
@@ -100,6 +100,7 @@ function protectedApp(profiles: ProfileStore) {
     db: { ping: async () => {} },
     auth: { verifier, profiles },
     // These tests drive /me, not a repository-backed route.
+    llm: unusedLlm,
     repos: unusedRepos,
   });
   app.get("/me", { preHandler: app.authenticate }, async (req) => ({ id: req.user?.id }));

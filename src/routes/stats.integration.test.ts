@@ -5,6 +5,7 @@ import type { AuthDeps } from "../auth/plugin";
 import { createRepositories } from "../repositories";
 import { MAX_PAGE_SIZE } from "../repositories/shared";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
+import { unusedLlm } from "../test/stubs";
 
 // /stats against a real Postgres with the real repositories behind it. The route
 // tests prove the arithmetic given a well-behaved store; this proves the reads
@@ -34,6 +35,7 @@ describe.skipIf(!hasTestDatabase)("GET /stats (integration)", () => {
       config: testConfig,
       db: { ping: async () => {} },
       auth: authAs(userId),
+      llm: unusedLlm,
       repos: createRepositories(testDb()),
     });
 

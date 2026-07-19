@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildApp } from "./app";
 import type { Env } from "./config/env";
-import { unusedRepos } from "./test/stubs";
+import { unusedLlm, unusedRepos } from "./test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -13,7 +13,13 @@ const stubAuth = {
 
 const appWith = (ping: () => Promise<void>) =>
   // Likewise for the repository seam — these paths never reach a route that reads it.
-  buildApp({ config: testConfig, db: { ping }, auth: stubAuth, repos: unusedRepos });
+  buildApp({
+    config: testConfig,
+    db: { ping },
+    auth: stubAuth,
+    llm: unusedLlm,
+    repos: unusedRepos,
+  });
 
 describe("buildApp", () => {
   it("GET /health returns { status: 'ok' } when the DB is reachable", async () => {

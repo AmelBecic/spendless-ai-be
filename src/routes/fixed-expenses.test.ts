@@ -7,7 +7,13 @@ import type {
   FixedExpensesRepository,
   CreateFixedExpenseInput,
 } from "../repositories/fixed-expenses";
-import { emptyCategories, unusedProfiles, unusedTransactions } from "../test/stubs";
+import {
+  emptyCategories,
+  unusedLlm,
+  unusedProfiles,
+  unusedSummaries,
+  unusedTransactions,
+} from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -99,7 +105,14 @@ function appWith(expenses: FixedExpensesRepository, auth = acceptingAuth, cats =
     config: testConfig,
     db: { ping: async () => {} },
     auth,
-    repos: { categories: cats, expenses, transactions: unusedTransactions, profiles: unusedProfiles },
+    llm: unusedLlm,
+    repos: {
+      categories: cats,
+      expenses,
+      transactions: unusedTransactions,
+      profiles: unusedProfiles,
+      summaries: unusedSummaries,
+    },
   });
 }
 
