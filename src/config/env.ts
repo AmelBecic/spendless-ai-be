@@ -23,8 +23,10 @@ const EnvSchema = z.object({
   SUPABASE_ANON_KEY: optionalNonEmpty,
   SUPABASE_JWKS_URL: optionalNonEmpty,
   // Anthropic API (SLAI-16). Server-side only — never reaches a client. Optional
-  // here so tests and tooling load without it; the LLM seam fails loudly at
-  // construction when it is missing rather than at the first call.
+  // here so tests and tooling load without it. `createAnthropicLlmClient` throws
+  // on a blank key, so how early a keyless deploy fails depends on where the
+  // client is constructed: nothing builds it yet, so today it would surface on
+  // first use. SLAI-17 wires it into startup and should make this required then.
   ANTHROPIC_API_KEY: optionalNonEmpty,
 });
 

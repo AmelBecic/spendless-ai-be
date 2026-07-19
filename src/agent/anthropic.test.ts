@@ -98,6 +98,32 @@ describe("buildMessageParams", () => {
       expect(first.system).toEqual(second.system);
       expect(first.messages).not.toEqual(second.messages);
     });
+
+    // Tools render before system, so the one breakpoint covers them too. The
+    // whole prefix — tools included — has to stay stable as input varies.
+    it("holds tools and system both stable across calls that differ only in input", () => {
+      const tools = [
+        {
+          name: "lookup_category",
+          description: "Resolve a category by name",
+          input_schema: { type: "object" as const, properties: { name: { type: "string" } } },
+        },
+      ];
+      const first = buildMessageParams(request({ tools, input: '{"totalCents":1}' }));
+      const second = buildMessageParams(request({ tools, input: '{"totalCents":2}' }));
+
+      // Assert the tools actually reached the params before comparing the two —
+      // otherwise a build that drops them entirely satisfies `toEqual` as
+      // undefined === undefined and the test passes while caching nothing.
+      expect(first.tools).toEqual(tools);
+      expect(first.tools).toEqual(second.tools);
+      expect(first.system).toEqual(second.system);
+      expect(first.messages).not.toEqual(second.messages);
+    });
+
+    it("omits the tools key entirely when no tools are supplied", () => {
+      expect(buildMessageParams(request())).not.toHaveProperty("tools");
+    });
   });
 });
 
@@ -154,7 +180,7 @@ describe("createAnthropicLlmClient", () => {
     expect(sdk.maxRetries).toBeLessThanOrEqual(2);
   });
 
-  it("refuses to construct without a key, so a misconfigured deploy fails at boot", () => {
+  it("refuses to construct without a key rather than failing at the first call", () => {
     expect(() => createAnthropicLlmClient({ apiKey: "  ", logger: silentLogger() })).toThrow(
       /ANTHROPIC_API_KEY/,
     );
@@ -214,6 +240,21 @@ describe("createAnthropicLlmClient", () => {
       client: stubAnthropic(() =>
         Promise.resolve({ ...okResponse, parsed_output: null, stop_reason: "refusal" }),
       ),
+    });
+
+    await expect(client.complete(request())).rejects.toMatchObject({
+      code: "LLM_UNPARSEABLE",
+    });
+  });
+
+  // An absent field must not slip past the null guard and reach a caller whose
+  // type promises T — that is the same failure as the explicit null above.
+  it("treats an absent parsed_output the same as an explicit null", async () => {
+    const { parsed_output: _omitted, ...withoutOutput } = okResponse;
+    const client = createAnthropicLlmClient({
+      apiKey: "test-key",
+      logger: silentLogger(),
+      client: stubAnthropic(() => Promise.resolve({ ...withoutOutput, stop_reason: "max_tokens" })),
     });
 
     await expect(client.complete(request())).rejects.toMatchObject({

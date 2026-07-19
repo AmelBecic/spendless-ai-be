@@ -67,6 +67,12 @@ export interface LlmRequest<T> {
   schema: z.ZodType<T>;
   /** Call-site label for logs — correlates usage and failures. Not sent to the API. */
   schemaName: string;
+  /**
+   * Tool definitions. Part of the cached prefix (tools render before system), so
+   * these must be stable per call site — a tool list built per request, or in a
+   * non-deterministic order, invalidates the cache on every call.
+   */
+  tools?: Anthropic.ToolUnion[];
   effort?: Effort;
   maxTokens?: number;
 }
@@ -116,9 +122,9 @@ function estimateCostUsd(usage: Omit<LlmUsage, "estimatedCostUsd">): number {
  * is a property of this object, not of the network round trip.
  *
  * Render order is `tools` → `system` → `messages`, and a cache breakpoint covers
- * everything before it. The single breakpoint sits on the last system block, so
- * it caches the system prompt today and will cache tool definitions too once
- * agents pass any — without needing a second breakpoint.
+ * everything before it. One breakpoint on the last system block therefore caches
+ * the tool definitions and the system prompt together — no second breakpoint
+ * needed, and no way for the two to be cached inconsistently.
  */
 export function buildMessageParams<T>(
   request: LlmRequest<T>,
@@ -126,6 +132,9 @@ export function buildMessageParams<T>(
   return {
     model: MODEL,
     max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
+    // Omitted entirely when absent — an explicit `tools: undefined` still
+    // serialises differently across SDK versions than an absent key.
+    ...(request.tools ? { tools: request.tools } : {}),
     // Adaptive thinking is off by default on Opus 4.8 — it must be set
     // explicitly or the model runs without thinking at all.
     thinking: { type: "adaptive" },
@@ -241,10 +250,12 @@ export function createAnthropicLlmClient(opts: AnthropicLlmClientOptions): LlmCl
         "model call completed",
       );
 
-      // `parse` returns null when the response could not be validated against
-      // the schema — a refusal or a truncated completion. Surfacing it beats
-      // handing a downstream agent a null it will misread as "no findings".
-      if (response.parsed_output === null) {
+      // `parse` yields no output when the response could not be validated
+      // against the schema — a refusal or a truncated completion. Loose `== null`
+      // deliberately covers `undefined` too: an absent field would otherwise slip
+      // through and hand a downstream agent an undefined its type calls `T`,
+      // which is the exact "misread as no findings" outcome this guards against.
+      if (response.parsed_output == null) {
         throw new AppError(502, "LLM_UNPARSEABLE", "the model returned no schema-valid output", {
           cause: new Error(`stop_reason: ${response.stop_reason}`),
         });
