@@ -4,10 +4,11 @@ on:
   push:
     branches: [main]
 
-# A new push supersedes the run still going for the same ref.
+# A new push supersedes the run still going for the same ref — except on main,
+# where every commit's result is a record worth keeping.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
