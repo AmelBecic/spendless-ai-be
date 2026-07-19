@@ -72,6 +72,18 @@ first. This list grows every time the reviewer catches something that could have
       parses to 00:00:00Z, so an `lte` filter drops 24 hours and a month's listing silently
       under-reports its last day. Widen to 23:59:59.999Z. Test the `to` side, not just `from` —
       midnight is coincidentally correct for a lower bound, which hides the bug. (SLAI-10.)
+- [ ] **`createdAt` is not a domain date.** It records when a row was entered, not when the thing it
+      describes began. Filtering a historical aggregate on it looks principled and silently empties
+      the past: a user who types in standing rent today gets zero recurring spend for every prior
+      period. If the domain needs "when did this start", add `startedAt`/`endedAt` — don't proxy it.
+      (SLAI-11: caught only by an integration test, because unit fixtures set `createdAt` by hand and
+      every real row gets `now()`.) The mirror case is a **boolean status flag read as though it had
+      always held** — filtering history on `active` empties closed periods of things that were
+      genuinely paid then, so an aggregate over a closed period silently changes when a user edits a
+      row today. Both directions are the same missing `startedAt`/`endedAt` pair.
+- [ ] **Aggregates must read every page.** A total over one page of a cursor-paged repository is just
+      a wrong number. Walk the cursor, and bound the walk with an error rather than a silent
+      truncation — a capped total is indistinguishable from a real one. (SLAI-11.)
 - [ ] **`Date.parse` NaN is not a calendar check.** `2026-07-32` yields NaN but `2026-02-31` rolls
       forward to 2026-03-03, filing data under the wrong month. Verify the day against the month's
       real length. (SLAI-10.)

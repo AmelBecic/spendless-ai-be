@@ -96,6 +96,18 @@ const isoString = z
 export const timestamp = isoString.transform((value) => new Date(value));
 
 /**
+ * A bound expressed as the UTC calendar day it falls in — what a period-based
+ * endpoint like /stats cuts on. A value carrying a time is converted before the
+ * day is taken, so `2026-07-01T00:30:00+02:00` reports under `2026-06-30`, the
+ * UTC day that instant belongs to. Slicing the string instead would keep the
+ * caller's local date and disagree with every stored `occurredAt` it is then
+ * compared against.
+ */
+export const isoDate = isoString.transform((value) =>
+  new Date(value).toISOString().slice(0, 10),
+);
+
+/**
  * An *inclusive* upper bound. A bare date has to cover the whole day it names,
  * not the single instant of its midnight: a date-only value parses to 00:00:00Z,
  * so against the repository's `lte` filter `?to=2026-07-31` would match only
