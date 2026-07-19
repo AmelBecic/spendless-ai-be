@@ -25,5 +25,15 @@
   "Generated with Claude" line). History reads as authored solely by the committer — enforced by
   the `commit-msg` hook, so don't add such trailers.
 
+## Tooling
+- **Serena MCP is configured for this repo — use it to navigate code.** Prefer
+  `get_symbols_overview` / `find_symbol` over reading a file end-to-end, and
+  `find_referencing_symbols` before changing any shared signature or exported type.
+- Plain `Read` is still correct for whole small files, configs, docs, and diffs. Symbol lookup is
+  for navigating code, not a blanket replacement for reading it.
+- Serena's config lives at **local scope** (`~/.claude.json`), so it is *not* checked in — a fresh
+  clone or another machine needs `claude mcp add serena` again. Re-run `serena project index` after
+  large refactors.
+
 ## Ticket context
 - Source of truth for requirements is the linked **Jira** ticket. Reference the ticket key in the branch and PR title.
