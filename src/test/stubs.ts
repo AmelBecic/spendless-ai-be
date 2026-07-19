@@ -6,6 +6,7 @@ import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { ProfilesRepository } from "../repositories/profiles";
 import type { ProfileSummariesRepository } from "../repositories/profile-summaries";
+import type { SuggestionsRepository } from "../repositories/suggestions";
 import type { LlmClient } from "../agent/anthropic";
 
 /**
@@ -40,6 +41,13 @@ export const unusedSummaries: ProfileSummariesRepository = {
   upsert: () => Promise.reject(new Error("profile summaries repository used unexpectedly")),
 };
 
+export const unusedSuggestions: SuggestionsRepository = {
+  list: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+  findById: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+  create: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+  setStatus: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+};
+
 export const emptyCategories: CategoriesRepository = { list: async () => [] };
 
 /**
@@ -72,4 +80,5 @@ export const unusedRepos = {
   transactions: unusedTransactions,
   profiles: unusedProfiles,
   summaries: unusedSummaries,
+  suggestions: unusedSuggestions,
 };

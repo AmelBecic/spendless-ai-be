@@ -77,8 +77,15 @@ export function createSuggestionsRepository(
             ...(options.asOfDate ? { asOfDate: options.asOfDate } : {}),
             ...(options.status ? { status: options.status } : {}),
           },
-          // Most recent day first; id breaks ties so the order is total.
-          orderBy: [{ asOfDate: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+          // Most recent day first, then the biggest saving within that day; id
+          // breaks the remaining ties so the order is total, which is what makes
+          // the cursor stable.
+          //
+          // Ranking by value rather than by `createdAt` because a refresh writes
+          // a whole day's set in one pass: those rows share a timestamp to the
+          // millisecond, so insertion order sorts them arbitrarily and the top of
+          // a user's feed would be whichever row happened to win the tiebreak.
+          orderBy: [{ asOfDate: "desc" }, { estMonthlySavingsCents: "desc" }, { id: "asc" }],
           take: size + 1,
           ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
         });

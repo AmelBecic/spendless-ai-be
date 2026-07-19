@@ -12,11 +12,13 @@ import { registerFixedExpensesRoutes } from "./routes/fixed-expenses";
 import { registerTransactionsRoutes } from "./routes/transactions";
 import { registerStatsRoute } from "./routes/stats";
 import { registerProfileRoutes } from "./routes/profile";
+import { registerSuggestionsRoutes } from "./routes/suggestions";
 import type { CategoriesRepository } from "./repositories/categories";
 import type { FixedExpensesRepository } from "./repositories/fixed-expenses";
 import type { TransactionsRepository } from "./repositories/transactions";
 import type { ProfilesRepository } from "./repositories/profiles";
 import type { ProfileSummariesRepository } from "./repositories/profile-summaries";
+import type { SuggestionsRepository } from "./repositories/suggestions";
 import type { LlmClient } from "./agent/anthropic";
 
 export interface AppDeps {
@@ -32,6 +34,7 @@ export interface AppDeps {
     transactions: TransactionsRepository;
     profiles: ProfilesRepository;
     summaries: ProfileSummariesRepository;
+    suggestions: SuggestionsRepository;
   };
 }
 
@@ -113,6 +116,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     profiles: deps.repos.profiles,
     summaries: deps.repos.summaries,
     categories: deps.repos.categories,
+  });
+  registerSuggestionsRoutes(app, {
+    llm: deps.llm,
+    transactions: deps.repos.transactions,
+    expenses: deps.repos.expenses,
+    profiles: deps.repos.profiles,
+    summaries: deps.repos.summaries,
+    suggestions: deps.repos.suggestions,
+    categories: deps.repos.categories,
+    logger: app.log,
   });
 
   return app;

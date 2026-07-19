@@ -5,17 +5,18 @@
 
 import { z } from "zod";
 import type { CategoriesRepository } from "../repositories/categories";
+import { INT4_MAX } from "../domain/money";
 import { ValidationError } from "../http/errors";
 
 // Integer cents only: `.int()` rejects a float outright rather than rounding it,
 // so an amount can never lose precision on the way in.
 //
-// The upper bound is the storage bound, not a product rule: `amountCents` is a
-// Prisma `Int`, i.e. Postgres int4. Without it, 2_147_483_648 passes validation
-// and overflows at the database — the 500 that the categoryId check exists to
-// avoid, in a different guise. Verified against the column: 2_147_483_647
-// stores, one more raises.
-export const INT4_MAX = 2_147_483_647;
+// The upper bound is the storage bound, not a product rule. Without it,
+// 2_147_483_648 passes validation and overflows at the database — the 500 that
+// the categoryId check exists to avoid, in a different guise. Verified against
+// the column: 2_147_483_647 stores, one more raises. It lives in domain/money.ts
+// because computed amounts have to respect it too, not just incoming ones.
+export { INT4_MAX };
 
 export const amountCents = z
   .number()
@@ -103,9 +104,7 @@ export const timestamp = isoString.transform((value) => new Date(value));
  * caller's local date and disagree with every stored `occurredAt` it is then
  * compared against.
  */
-export const isoDate = isoString.transform((value) =>
-  new Date(value).toISOString().slice(0, 10),
-);
+export const isoDate = isoString.transform((value) => new Date(value).toISOString().slice(0, 10));
 
 /**
  * An *inclusive* upper bound. A bare date has to cover the whole day it names,

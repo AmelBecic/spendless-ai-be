@@ -10,6 +10,7 @@ import {
   unusedLlm,
   unusedProfiles,
   unusedSummaries,
+  unusedSuggestions,
   unusedTransactions,
 } from "../test/stubs";
 
@@ -39,6 +40,7 @@ function appWith(categories: CategoriesRepository, auth = acceptingAuth) {
       transactions: unusedTransactions,
       profiles: unusedProfiles,
       summaries: unusedSummaries,
+      suggestions: unusedSuggestions,
     },
   });
 }
