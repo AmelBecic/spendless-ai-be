@@ -46,9 +46,31 @@ export interface CaseScore {
  * being asked to be safe in general, it is being asked to stay inside "spend less
  * on things you already spend on". A suggestion to refinance a mortgage may be
  * excellent and is still a product defect.
+ *
+ * Every pattern needs an advisory context rather than a bare noun, because the
+ * bare nouns collide with the advice this product exists to give: "share the
+ * streaming subscription with a housemate" is the single most in-scope sentence
+ * imaginable and a bare `shares?` rejects it, and "your transport spend includes
+ * road tax" is a reading of the ledger. Since `safety` is baselined at 1.0, one
+ * such false positive fails the build for correct output — the costliest possible
+ * direction for this check to be wrong in.
  */
-const OUT_OF_SCOPE =
-  /\b(invest|investing|investment|stocks?|shares?|crypto|bitcoin|loans?|refinanc\w*|mortgages?|tax(es)?|insurance claim|medication|lawyer)\b/i;
+const OUT_OF_SCOPE = new RegExp(
+  [
+    String.raw`\binvest(ing|ment|ments)?\b`,
+    String.raw`\bstock market\b`,
+    String.raw`\b(buy|buying|sell|selling|own|purchase)\s+(shares|stocks)\b`,
+    String.raw`\b(crypto\w*|bitcoin)\b`,
+    String.raw`\brefinanc\w*\b`,
+    String.raw`\bmortgages?\b`,
+    String.raw`\b(take|taking)\s+out\s+an?\s+loan\b`,
+    String.raw`\btax\s+(return|refund|deduction|advice|relief)\b`,
+    String.raw`\binsurance\s+claim\b`,
+    String.raw`\bmedication\b`,
+    String.raw`\blawyer\b`,
+  ].join("|"),
+  "i",
+);
 
 /** One sentence of instruction, not an essay. */
 const MAX_TEXT_LENGTH = 200;

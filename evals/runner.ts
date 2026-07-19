@@ -6,6 +6,14 @@
 // so a runner that called the agent first and filtered afterwards would score
 // them zero, which is the correct verdict on that implementation.
 //
+// The guard itself is *shared*, not copied: both this and `refreshSuggestions`
+// call `hasAnythingToAdvise`. A harness holding its own version of the condition
+// would keep scoring 100% while the service quietly started paying for
+// completions on empty ledgers, which is the one thing gracefulDegradation is
+// there to notice. What remains unshared is the surrounding sequence, so moving
+// the model call above the guard *in the service* is still not something these
+// cases would catch — that belongs to `suggest-refresh`'s own tests.
+//
 // The two agents are independent passes, not a pipeline, and the harness runs
 // them the way production does:
 //
@@ -23,6 +31,7 @@ import { aggregate, discretionaryByCategory } from "../src/agent/aggregate";
 import type { LlmClient } from "../src/agent/anthropic";
 import { runProfileAgent, type ProfileAgentResult } from "../src/agent/profile";
 import {
+  hasAnythingToAdvise,
   runSuggestionAgent,
   suggestibleExpenses,
   type SuggestionAgentResult,
@@ -73,7 +82,7 @@ export async function runCase(inner: LlmClient, evalCase: EvalCase): Promise<Cas
 
   const discretionary = discretionaryByCategory(ledger.transactions, ledger.currency);
   const suggestible = suggestibleExpenses(ledger.fixedExpenses, ledger.currency);
-  if (discretionary.length === 0 && suggestible.length === 0) {
+  if (!hasAnythingToAdvise(discretionary, suggestible)) {
     return { kind: "empty", stats, llmCalls: llm.calls };
   }
 

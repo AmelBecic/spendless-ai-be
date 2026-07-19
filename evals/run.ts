@@ -124,7 +124,24 @@ async function main(): Promise<void> {
     return;
   }
 
-  const regressions = compareToBaseline(report, readBaseline(path));
+  // The first `--live` run has no baseline to compare against — it has not been
+  // recorded yet, by definition. Dying on a raw ENOENT stack after doing all the
+  // billable work leaves the one useful next step for the reader to infer.
+  let baseline;
+  try {
+    baseline = readBaseline(path);
+  } catch (thrown) {
+    if (!isMissingFile(thrown)) throw thrown;
+    const liveFlag = options.mode === "live" ? " --live" : "";
+    console.error(
+      `\nno baseline recorded for "${options.mode}" mode. Record this run as the baseline with:\n` +
+        `  npm run eval --${liveFlag} --update-baseline`,
+    );
+    process.exitCode = 2;
+    return;
+  }
+
+  const regressions = compareToBaseline(report, baseline);
   if (regressions.length > 0) {
     console.error(`\nregressed against the baseline:`);
     for (const regression of regressions) console.error(`  - ${regression}`);
@@ -133,6 +150,11 @@ async function main(): Promise<void> {
   }
 
   console.log("\nno regression against the baseline.");
+}
+
+/** A missing file, as opposed to a malformed one — those still surface their real error. */
+function isMissingFile(thrown: unknown): boolean {
+  return thrown instanceof Error && (thrown as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 /** A case that could not be run at all: zero everywhere, with the reason recorded. */

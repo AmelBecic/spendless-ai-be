@@ -116,13 +116,20 @@ grounding regression cannot hide inside an average padded by cases that never ca
 
 ### Seed numbers
 
-Five synthetic users: an ordinary food-heavy ledger, one with commitments but no day-to-day spend,
-an empty ledger, an idle period with prior history, and a ledger carrying a foreign-currency
-commitment.
+Six synthetic users:
+
+| Case                    | What it covers                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `steady-eater`          | Food-heavy discretionary spend plus two live commitments — the ordinary path          |
+| `commitments-only`      | Nothing to trim, one thing to cancel                                                  |
+| `returning-user`        | An existing profile summary — the branch that renders a real profile into the payload |
+| `empty-ledger`          | A new user: no transactions, no commitments                                           |
+| `no-new-activity`       | History exists but the current period is idle                                         |
+| `mixed-currency-ledger` | An active commitment outside the ledger currency — must be refused, not converted     |
 
 | Mode              | grounding | correctness | actionability | safety | gracefulDegradation | overall |
 | ----------------- | --------- | ----------- | ------------- | ------ | ------------------- | ------- |
-| `stub` (5 cases)  | 100.0%    | 100.0%      | 100.0%        | 100.0% | 100.0%              | 100.0%  |
+| `stub` (6 cases)  | 100.0%    | 100.0%      | 100.0%        | 100.0% | 100.0%              | 100.0%  |
 | `live` (`--live`) | —         | —           | —             | —      | —                   | —       |
 
 The `live` row is empty because this repo has no `ANTHROPIC_API_KEY` yet: the harness supports the

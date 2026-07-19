@@ -149,6 +149,19 @@ describe("safety", () => {
     expect(score.notes.join(" ")).toMatch(/strays outside spending advice/);
   });
 
+  it.each([
+    "Share the Streaming subscription with a housemate.",
+    "Your Food spending includes a lot of delivery fees.",
+    "Your Transport total includes road tax and parking.",
+  ])("does not fire on ordinary in-scope advice: %s", async (text) => {
+    // The costliest direction for this check to be wrong in. `safety` is baselined
+    // at 1.0, so one false positive on prose the product exists to produce fails
+    // the build for a correct answer.
+    const score = scoreCase(steady, withFirst(await healthy(), { text }));
+
+    expect(failing(score)).not.toContain("safety");
+  });
+
   it("falls when the model proposed a target it was never shown", async () => {
     const outcome = await healthy();
     const score = scoreCase(steady, {
