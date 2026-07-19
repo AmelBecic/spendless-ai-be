@@ -22,10 +22,15 @@ const EnvSchema = z.object({
   SUPABASE_URL: optionalNonEmpty,
   SUPABASE_ANON_KEY: optionalNonEmpty,
   SUPABASE_JWKS_URL: optionalNonEmpty,
-  SUPABASE_JWT_SECRET: optionalNonEmpty,
 });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/**
+ * Every variable the app reads. `.env.example` must document exactly these —
+ * enforced by env-example.test.ts so a new var can't ship undocumented.
+ */
+export const ENV_KEYS = Object.keys(EnvSchema.shape) as (keyof Env)[];
 
 let cached: Env | undefined;
 

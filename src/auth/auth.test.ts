@@ -11,7 +11,7 @@ import {
 import { buildApp } from "../app";
 import type { Env } from "../config/env";
 import { unusedRepos } from "../test/stubs";
-import { createJwtAuthVerifier, type AuthVerifier } from "./verifier";
+import { createJwtAuthVerifier, supabaseAuthEndpoints, type AuthVerifier } from "./verifier";
 import type { ProfileStore } from "./profile-store";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
@@ -266,5 +266,35 @@ describe("createJwtAuthVerifier error classification", () => {
       statusCode: 503,
       code: "AUTH_UNAVAILABLE",
     });
+  });
+});
+
+describe("supabaseAuthEndpoints", () => {
+  const PROJECT = "https://abc.supabase.co";
+  const DERIVED = "https://abc.supabase.co/auth/v1/.well-known/jwks.json";
+
+  it("derives the issuer and JWKS URL from the project URL alone", () => {
+    expect(supabaseAuthEndpoints(PROJECT)).toEqual({
+      issuer: "https://abc.supabase.co/auth/v1",
+      jwksUrl: DERIVED,
+    });
+  });
+
+  it("tolerates a trailing slash on the project URL", () => {
+    expect(supabaseAuthEndpoints("https://abc.supabase.co//").issuer).toBe(
+      "https://abc.supabase.co/auth/v1",
+    );
+  });
+
+  // `cp .env.example .env` leaves SUPABASE_JWKS_URL defined but blank; a blank
+  // override must not win over the derived default.
+  it.each([undefined, "", "   "])("falls back to the derived JWKS URL for %o", (override) => {
+    expect(supabaseAuthEndpoints(PROJECT, override).jwksUrl).toBe(DERIVED);
+  });
+
+  it("honours a non-standard JWKS endpoint when one is set", () => {
+    expect(supabaseAuthEndpoints(PROJECT, "https://gateway.internal/jwks").jwksUrl).toBe(
+      "https://gateway.internal/jwks",
+    );
   });
 });
