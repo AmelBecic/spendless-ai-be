@@ -5,6 +5,8 @@ import type { CategoriesRepository } from "../repositories/categories";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { ProfilesRepository } from "../repositories/profiles";
+import type { ProfileSummariesRepository } from "../repositories/profile-summaries";
+import type { LlmClient } from "../agent/anthropic";
 
 /**
  * A repository whose every method throws. If a test that claims not to touch
@@ -33,7 +35,35 @@ export const unusedProfiles: ProfilesRepository = {
   update: () => Promise.reject(new Error("profiles repository used unexpectedly")),
 };
 
+export const unusedSummaries: ProfileSummariesRepository = {
+  latest: () => Promise.reject(new Error("profile summaries repository used unexpectedly")),
+  upsert: () => Promise.reject(new Error("profile summaries repository used unexpectedly")),
+};
+
 export const emptyCategories: CategoriesRepository = { list: async () => [] };
+
+/**
+ * An LLM that refuses to be called. A test that reaches the model without saying
+ * so is either spending real tokens or asserting against a stub it forgot to
+ * configure — both fail here instead of passing quietly.
+ */
+export const unusedLlm: LlmClient = {
+  complete: () => Promise.reject(new Error("llm client used unexpectedly")),
+};
+
+/**
+ * The nth entry of a recorded call log. Tests that assert on what a stub was
+ * called with index into an array the compiler cannot prove is long enough;
+ * this fails with the count it actually saw rather than at a later assertion
+ * with no explanation.
+ */
+export function nth<T>(items: T[], index: number): T {
+  const item = items[index];
+  if (item === undefined) {
+    throw new Error(`expected at least ${index + 1} recorded call(s), got ${items.length}`);
+  }
+  return item;
+}
 
 /** The `repos` bundle for tests that drive no repository-backed route. */
 export const unusedRepos = {
@@ -41,4 +71,5 @@ export const unusedRepos = {
   expenses: unusedFixedExpenses,
   transactions: unusedTransactions,
   profiles: unusedProfiles,
+  summaries: unusedSummaries,
 };

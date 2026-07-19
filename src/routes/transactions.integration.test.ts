@@ -5,6 +5,7 @@ import type { AuthDeps } from "../auth/plugin";
 import type { Transaction } from "../domain/types";
 import { createRepositories } from "../repositories";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
+import { unusedLlm } from "../test/stubs";
 
 // The endpoints against a real Postgres, with the real repositories behind them:
 // the route tests prove the handlers given a well-behaved store, this proves the
@@ -33,6 +34,7 @@ describe.skipIf(!hasTestDatabase)("transactions endpoints (integration)", () => 
       config: testConfig,
       db: { ping: async () => {} },
       auth: authAs(userId),
+      llm: unusedLlm,
       repos: createRepositories(testDb()),
     });
 

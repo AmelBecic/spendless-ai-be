@@ -11,21 +11,27 @@ import { registerCategoriesRoute } from "./routes/categories";
 import { registerFixedExpensesRoutes } from "./routes/fixed-expenses";
 import { registerTransactionsRoutes } from "./routes/transactions";
 import { registerStatsRoute } from "./routes/stats";
+import { registerProfileRoutes } from "./routes/profile";
 import type { CategoriesRepository } from "./repositories/categories";
 import type { FixedExpensesRepository } from "./repositories/fixed-expenses";
 import type { TransactionsRepository } from "./repositories/transactions";
 import type { ProfilesRepository } from "./repositories/profiles";
+import type { ProfileSummariesRepository } from "./repositories/profile-summaries";
+import type { LlmClient } from "./agent/anthropic";
 
 export interface AppDeps {
   config: Env;
   db: { ping: () => Promise<void> };
   auth: AuthDeps;
+  /** The model seam the agent routes run on — an interface, never the SDK. */
+  llm: LlmClient;
   /** The data-access seam routes read through. Narrowed to what the registered routes need. */
   repos: {
     categories: CategoriesRepository;
     expenses: FixedExpensesRepository;
     transactions: TransactionsRepository;
     profiles: ProfilesRepository;
+    summaries: ProfileSummariesRepository;
   };
 }
 
@@ -99,6 +105,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     transactions: deps.repos.transactions,
     expenses: deps.repos.expenses,
     profiles: deps.repos.profiles,
+  });
+  registerProfileRoutes(app, {
+    llm: deps.llm,
+    transactions: deps.repos.transactions,
+    expenses: deps.repos.expenses,
+    profiles: deps.repos.profiles,
+    summaries: deps.repos.summaries,
+    categories: deps.repos.categories,
   });
 
   return app;

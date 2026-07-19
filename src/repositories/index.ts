@@ -13,6 +13,10 @@ import { createProfilesRepository, type ProfilesRepository } from "./profiles";
 import { createFixedExpensesRepository, type FixedExpensesRepository } from "./fixed-expenses";
 import { createTransactionsRepository, type TransactionsRepository } from "./transactions";
 import { createSuggestionsRepository, type SuggestionsRepository } from "./suggestions";
+import {
+  createProfileSummariesRepository,
+  type ProfileSummariesRepository,
+} from "./profile-summaries";
 
 export interface Repositories {
   categories: CategoriesRepository;
@@ -20,6 +24,7 @@ export interface Repositories {
   expenses: FixedExpensesRepository;
   transactions: TransactionsRepository;
   suggestions: SuggestionsRepository;
+  summaries: ProfileSummariesRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -29,6 +34,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     expenses: createFixedExpensesRepository(prisma),
     transactions: createTransactionsRepository(prisma),
     suggestions: createSuggestionsRepository(prisma),
+    summaries: createProfileSummariesRepository(prisma),
   };
 }
 
@@ -51,4 +57,5 @@ export type {
   CreateSuggestionInput,
   ListSuggestionsOptions,
 } from "./suggestions";
+export type { ProfileSummariesRepository, UpsertProfileSummaryInput } from "./profile-summaries";
 export type { Page } from "./shared";

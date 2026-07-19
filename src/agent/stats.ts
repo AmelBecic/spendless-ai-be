@@ -39,8 +39,12 @@ export class LedgerTooLargeError extends Error {
  * Every transaction in a window. The repository is paged by design — the table
  * grows with each day of use — but a total over one page would be a wrong
  * number, so walk the cursor to the end.
+ *
+ * Exported because the profiling agent needs the same complete-window read for
+ * its incremental slice, and under the same cap: a caller that walked one page
+ * itself would silently hand the model a truncated view of the new activity.
  */
-async function listPeriod(
+export async function listPeriod(
   repo: TransactionsRepository,
   userId: string,
   period: Period,

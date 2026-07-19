@@ -6,7 +6,7 @@ import type { AuthDeps } from "../auth/plugin";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfilesRepository } from "../repositories/profiles";
 import type { TransactionsRepository } from "../repositories/transactions";
-import { emptyCategories } from "../test/stubs";
+import { emptyCategories, unusedLlm, unusedSummaries } from "../test/stubs";
 
 const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
 
@@ -120,11 +120,13 @@ function appWith(options: {
     config: testConfig,
     db: { ping: async () => {} },
     auth: options.auth ?? authAs(USER),
+    llm: unusedLlm,
     repos: {
       categories: emptyCategories,
       expenses: fakeExpenses(options.expenses ?? []),
       transactions: options.transactionsRepo ?? fakeTransactions(options.transactions ?? []),
       profiles: fakeProfiles(options.profile === undefined ? profile("EUR") : options.profile),
+      summaries: unusedSummaries,
     },
   });
 }
