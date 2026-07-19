@@ -92,7 +92,7 @@ export function incrementalWindow(previous: ProfileSummary | null, period: Perio
  * profile that was last summarised this month. Only a profile left stale across
  * a month boundary pays for a second read.
  */
-async function newTransactions(
+async function inWindow(
   deps: ProfileRefreshDeps,
   userId: string,
   window: Period | null,
@@ -104,6 +104,38 @@ async function newTransactions(
     return periodTransactions.filter((tx) => tx.occurredAt.slice(0, 10) >= window.start);
   }
   return listPeriod(deps.transactions, userId, window);
+}
+
+/**
+ * Everything the agent should treat as new: the incremental window by
+ * `occurredAt`, plus anything *entered* since the previous summary was written.
+ *
+ * The two halves answer different questions and both are needed. A transaction
+ * backdated a week — normal in a spending app, you enter Saturday's coffee on
+ * Monday — falls outside a window anchored on `occurredAt`, yet it does move
+ * `stats.total` for the period. Without the second half it would never appear in
+ * any window, on any future day, while visibly changing the totals the narrative
+ * sits next to; and because `nothingChangedSince` judges novelty by `createdAt`,
+ * an empty window would even short-circuit the refresh as "nothing changed".
+ */
+async function newTransactions(
+  deps: ProfileRefreshDeps,
+  userId: string,
+  window: Period | null,
+  period: Period,
+  periodTransactions: Transaction[],
+  previous: ProfileSummary | null,
+): Promise<Transaction[]> {
+  const windowed = await inWindow(deps, userId, window, period, periodTransactions);
+  if (!previous) return windowed;
+
+  const seen = new Set(windowed.map((tx) => tx.id));
+  const backdated = periodTransactions.filter(
+    (tx) => !seen.has(tx.id) && tx.createdAt > previous.createdAt,
+  );
+  // Chronological, so the payload reads as a sequence rather than by which half
+  // of the union each row came from.
+  return [...windowed, ...backdated].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
 }
 
 /**
@@ -130,7 +162,14 @@ export async function refreshProfile(
 
   const stats = aggregate(period, ledger);
   const window = incrementalWindow(previous, period);
-  const transactions = await newTransactions(deps, userId, window, period, ledger.transactions);
+  const transactions = await newTransactions(
+    deps,
+    userId,
+    window,
+    period,
+    ledger.transactions,
+    previous,
+  );
 
   // Cheapest possible guard on a paid endpoint: a caller who refreshes twice with
   // no spending in between gets the row they already have, at the cost of the

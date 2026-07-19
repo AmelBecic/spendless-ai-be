@@ -298,6 +298,32 @@ describe("refreshProfile", () => {
     expect(result).toBe(previous);
   });
 
+  it("picks up a transaction backdated before the previous summary's day", async () => {
+    // Entered today, dated a week ago — outside an occurredAt-anchored window,
+    // but it moves the period totals the narrative sits next to, and no future
+    // window would ever reach back far enough to include it.
+    const previous = summaryOn("2026-07-12");
+    const backdated = { ...tx(4200, "2026-07-04"), createdAt: "2026-07-19T08:00:00.000Z" };
+    const { deps, requests } = depsWith({ transactions: [backdated], previous });
+
+    await refreshProfile(deps, USER, NOW);
+
+    expect(nth(requests, 0).input).toContain("2026-07-04");
+    expect(nth(requests, 0).input).toContain("42.00 EUR");
+  });
+
+  it("does not short-circuit when the only new activity is backdated", async () => {
+    const previous = summaryOn("2026-07-19");
+    const backdated = { ...tx(4200, "2026-07-04"), createdAt: "2026-07-19T18:00:00.000Z" };
+    const { deps, requests } = depsWith({ transactions: [backdated], previous });
+
+    await refreshProfile(deps, USER, NOW);
+
+    // An occurredAt-only window would be empty here, and `every` over an empty
+    // list is vacuously true — the refresh would have returned the stale row.
+    expect(requests).toHaveLength(1);
+  });
+
   it("still runs when a transaction was recorded after today's summary", async () => {
     const previous = summaryOn("2026-07-19");
     const fresh = { ...tx(1500, "2026-07-19"), createdAt: "2026-07-19T18:00:00.000Z" };
