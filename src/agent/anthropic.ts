@@ -216,11 +216,21 @@ export function createAnthropicLlmClient(opts: AnthropicLlmClientOptions): LlmCl
 
   return {
     async complete<T>(request: LlmRequest<T>): Promise<LlmResult<T>> {
-      if (request.system.length < MIN_CACHEABLE_PREFIX_CHARS) {
+      // Tools render before system and sit inside the same breakpoint, so the
+      // floor applies to both together — measuring `system` alone would warn on
+      // a call with compact instructions and bulky tool schemas that caches fine.
+      const toolChars = request.tools ? JSON.stringify(request.tools).length : 0;
+      const prefixChars = request.system.length + toolChars;
+      if (prefixChars < MIN_CACHEABLE_PREFIX_CHARS) {
         // Not fatal — the call still works, it just pays full price every time.
         opts.logger.warn(
-          { schemaName: request.schemaName, systemChars: request.system.length },
-          "system prompt is below the cacheable prefix floor; prompt caching will not engage",
+          {
+            schemaName: request.schemaName,
+            prefixChars,
+            systemChars: request.system.length,
+            toolChars,
+          },
+          "cached prefix is below the floor; prompt caching will not engage",
         );
       }
 

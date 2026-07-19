@@ -227,7 +227,7 @@ describe("createAnthropicLlmClient", () => {
     await client.complete(request({ system: "short" }));
 
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ systemChars: 5 }),
+      expect.objectContaining({ prefixChars: 5, systemChars: 5, toolChars: 0 }),
       expect.stringContaining("caching will not engage"),
     );
     expect(longSystem.length).toBeGreaterThanOrEqual(MIN_CACHEABLE_PREFIX_CHARS);
