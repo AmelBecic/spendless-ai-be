@@ -151,24 +151,31 @@ The arithmetic layer the LLM will later read but never perform. **Contains no LL
 
 # Sprint 2 — The profiling agent (rolling summary · suggestions · evals)
 
-Epic: **[SLAI-13]**. This is what the app is *for*. Builds the incremental profile loop and the
+Epic: **[SLAI-15]**. This is what the app is *for*. Builds the incremental profile loop and the
 grounded suggestion engine on top of Sprint 1's deterministic stats, then measures quality.
+(The old backlog draft numbered this epic SLAI-13 — that key was taken by a Sprint-1 chore; the
+Sprint 2 epic is **SLAI-15** and the tickets below are **SLAI-16 → 20**, created with full AC in Jira.)
 
-Headline tickets (AC to be expanded when the sprint starts, Trip-Planner style):
-- **Anthropic client** — `agent/anthropic.ts`: `claude-opus-4-8`, structured output via
-  `output_config.format`, prompt caching on the stable system prompt + tool defs, key server-side.
-  *(Confirm exact params against the `claude-api` skill first.)*
-- **Profiling agent (incremental)** — previous `ProfileSummary` + new transactions since last run +
-  fresh `SpendStats` → updated structured summary + narrative. Never reprocesses full history.
-  `POST /profile/refresh`, `GET /profile`.
-- **Suggestion agent (grounded + cited)** — latest summary + stats → suggestions, each citing the
-  stat/category it rests on; `estMonthlySavingsCents` computed in code. `GET /suggestions`,
-  `PATCH /suggestions/:id` (dismiss/apply). No hallucinated figures.
-- **Daily refresh job + cost guardrails** — scheduled per-user refresh that skips when there's no new
-  activity; per-user rate limit on LLM routes; caching. Deployed app spends real money per call.
-- **Eval harness (`evals/`)** — synthetic users with known-correct answers; scores grounding /
+Tickets (dependency order — full AC lives on the Jira issues):
+- **SLAI-16 · Anthropic client seam** — `agent/anthropic.ts`: `claude-opus-4-8`, structured output via
+  `output_config.format` (`messages.parse`), prompt caching on the stable system prompt + tool defs,
+  adaptive thinking, key server-side. **No `temperature`/`top_p`/`top_k`** (they 400 on Opus 4.8);
+  `ANTHROPIC_API_KEY` added to `.env.example` + the env schema in the same commit (parity test).
+  Confirmed against the `claude-api` skill.
+- **SLAI-17 · Profiling agent (incremental)** — previous `ProfileSummary` + new transactions since last
+  run + fresh `SpendStats` → updated structured summary + narrative. Never reprocesses full history.
+  `POST /profile/refresh`, `GET /profile`. *(depends on SLAI-16)*
+- **SLAI-18 · Suggestion agent (grounded + cited)** — latest summary + stats → suggestions, each citing
+  the stat/category it rests on; `estMonthlySavingsCents` computed in code. `GET /suggestions`,
+  `PATCH /suggestions/:id` (dismiss/apply). No hallucinated figures. *(depends on SLAI-17)*
+- **SLAI-19 · Daily refresh job + cost guardrails** — scheduled per-user refresh that skips when there's
+  no new activity; per-user rate limit on LLM routes; caching. Deployed app spends real money per call.
+  *(depends on SLAI-17, SLAI-18)*
+- **SLAI-20 · Eval harness (`evals/`)** — synthetic users with known-correct answers; scores grounding /
   correctness / actionability / safety / graceful-degradation; `npm run eval` prints per-case +
   aggregate and exits non-zero on regression. Seed numbers + metric definitions written to README.
+  **Land this first within the 19/20 pair — the eval numbers are the portfolio differentiator.**
+  *(depends on SLAI-17, SLAI-18)*
 
 ---
 
