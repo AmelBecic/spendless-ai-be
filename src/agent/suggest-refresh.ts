@@ -83,21 +83,20 @@ export async function refreshSuggestions(
     );
   }
 
-  // Sequential rather than concurrent: a handful of inserts, and one failing
-  // mid-batch should not leave a half-written set behind further writes.
-  const created: Suggestion[] = [];
-  for (const suggestion of result.suggestions) {
-    created.push(
-      await deps.suggestions.create(userId, {
-        asOfDate,
-        text: suggestion.text,
-        categoryId: suggestion.categoryId,
-        estMonthlySavingsCents: suggestion.estMonthlySavings.amountCents,
-        currency: suggestion.estMonthlySavings.currency,
-        rationale: suggestion.rationale,
-        sourceRefs: suggestion.sourceRefs,
-      }),
-    );
-  }
-  return created;
+  // Written as one atomic set. The check above is only a fast path — two
+  // refreshes racing past it would both land here, and the repository is what
+  // decides which one's rows the user actually keeps.
+  return deps.suggestions.createDailySet(
+    userId,
+    asOfDate,
+    result.suggestions.map((suggestion) => ({
+      asOfDate,
+      text: suggestion.text,
+      categoryId: suggestion.categoryId,
+      estMonthlySavingsCents: suggestion.estMonthlySavings.amountCents,
+      currency: suggestion.estMonthlySavings.currency,
+      rationale: suggestion.rationale,
+      sourceRefs: suggestion.sourceRefs,
+    })),
+  );
 }

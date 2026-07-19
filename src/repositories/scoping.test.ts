@@ -152,9 +152,14 @@ describe("repository user scoping", () => {
 
   it("suggestions: every method pins the userId", async () => {
     const calls: Call[] = [];
+    const suggestion = spyDelegate(calls, suggestionRow);
     const repo = createSuggestionsRepository({
-      suggestion: spyDelegate(calls, suggestionRow),
-    } as unknown as Pick<PrismaClient, "suggestion">);
+      suggestion,
+      // `createDailySet` runs inside a transaction; hand the callback the same
+      // recording delegate so its queries are asserted like any other.
+      $transaction: (fn: (tx: unknown) => unknown) =>
+        fn({ suggestion, $executeRaw: async () => 1 }),
+    } as unknown as Pick<PrismaClient, "suggestion" | "$transaction">);
 
     await repo.list(USER);
     await repo.list(USER, { asOfDate: new Date(), status: "new" });
@@ -168,6 +173,7 @@ describe("repository user scoping", () => {
       sourceRefs: [],
     });
     await repo.setStatus(USER, "s1", "dismissed");
+    await repo.createDailySet(USER, new Date(), []);
 
     assertScoped(calls);
   });
@@ -230,7 +236,11 @@ describe("repository user scoping", () => {
         run: (calls) =>
           createSuggestionsRepository({
             suggestion: spyDelegate(calls, suggestionRow),
-          } as unknown as Pick<PrismaClient, "suggestion">).setStatus(USER, "s1", "dismissed"),
+          } as unknown as Pick<PrismaClient, "suggestion" | "$transaction">).setStatus(
+            USER,
+            "s1",
+            "dismissed",
+          ),
       },
     ];
 
@@ -261,15 +271,17 @@ describe("profile provisioning under the first-request race", () => {
   }
 
   it("treats a lost insert race (P2002) as success — the row exists either way", async () => {
-    await expect(profilesWithFailingUpsert(prismaError("P2002")).ensure(USER)).resolves.toBeUndefined();
+    await expect(
+      profilesWithFailingUpsert(prismaError("P2002")).ensure(USER),
+    ).resolves.toBeUndefined();
   });
 
   it("still surfaces any other database failure", async () => {
     // The P2002 catch must not become a blanket swallow.
     await expect(profilesWithFailingUpsert(prismaError("P1001")).ensure(USER)).rejects.toThrow();
-    await expect(profilesWithFailingUpsert(new Error("connection lost")).ensure(USER)).rejects.toThrow(
-      "connection lost",
-    );
+    await expect(
+      profilesWithFailingUpsert(new Error("connection lost")).ensure(USER),
+    ).rejects.toThrow("connection lost");
   });
 });
 

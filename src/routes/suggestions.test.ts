@@ -84,6 +84,7 @@ function fakeSuggestions(seed: Suggestion[]): SuggestionsRepository {
       return owned(userId, id);
     },
     create: () => Promise.reject(new Error("not used by these tests")),
+    createDailySet: () => Promise.reject(new Error("not used by these tests")),
     async setStatus(userId, id, status) {
       const row = owned(userId, id);
       if (!row) return null;

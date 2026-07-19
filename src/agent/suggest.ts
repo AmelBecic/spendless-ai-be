@@ -87,6 +87,7 @@ export interface GroundedSuggestion {
 export type DropReason =
   | "unknown-target"
   | "duplicate-target"
+  | "inactive-target"
   | "currency-mismatch"
   | "no-saving"
   | "not-representable"
@@ -325,14 +326,16 @@ function priceCancel(
   text: string,
   rationale: string,
 ): Priced {
-  const expense = suggestibleExpenses(fixedExpenses, stats.currency).find(
-    (candidate) => candidate.id === expenseId,
-  );
-  if (!expense) {
-    // An id that exists but is inactive or foreign-currency was never shown to
-    // the model, so it is as unknown as one that does not exist at all.
-    const exists = fixedExpenses.some((candidate) => candidate.id === expenseId);
-    return { ok: false, reason: exists ? "currency-mismatch" : "unknown-target" };
+  // Resolved against the raw list first, then judged. `suggestibleExpenses`
+  // filters on two independent predicates, so a single "not suggestible" answer
+  // could not say which one failed — and reporting an already-cancelled
+  // commitment as a currency problem would point an operator at the wrong defect,
+  // which defeats the reason these are logged at all.
+  const expense = fixedExpenses.find((candidate) => candidate.id === expenseId);
+  if (!expense) return { ok: false, reason: "unknown-target" };
+  if (!expense.active) return { ok: false, reason: "inactive-target" };
+  if (expense.money.currency !== stats.currency) {
+    return { ok: false, reason: "currency-mismatch" };
   }
 
   const amountCents = monthlyEquivalentCents(expense);

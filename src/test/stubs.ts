@@ -45,6 +45,7 @@ export const unusedSuggestions: SuggestionsRepository = {
   list: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
   findById: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
   create: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+  createDailySet: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
   setStatus: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
 };
 

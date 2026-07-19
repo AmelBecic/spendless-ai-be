@@ -238,7 +238,10 @@ describe("runSuggestionAgent — grounding", () => {
 
     expect(inactive.suggestions).toHaveLength(0);
     expect(foreign.suggestions).toHaveLength(0);
-    // Both exist as rows, so neither is reported as simply unknown.
+    // Both exist as rows, so neither is reported as simply unknown — and each
+    // names the predicate that actually failed, since these reasons are what an
+    // operator reads when the feed goes quiet.
+    expect(inactive.dropped[0]?.reason).toBe("inactive-target");
     expect(foreign.dropped[0]?.reason).toBe("currency-mismatch");
   });
 

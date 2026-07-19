@@ -300,6 +300,24 @@ describe.skipIf(!hasTestDatabase)("/suggestions (integration)", () => {
     expect(await testDb().suggestion.count({ where: { userId: userA } })).toBe(1);
   });
 
+  it("writes one set when two refreshes race", async () => {
+    await spend(userA, 20000, foodId);
+    proposals = [trim(foodId), cancel(gymId)];
+
+    // Both pass the fast-path check before either inserts — the window the
+    // per-user row lock exists to close. Both still pay for a completion; that
+    // half is a rate limit's job, not this one's.
+    const [first, second] = await Promise.all([refresh(userA), refresh(userA)]);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    // Two proposals, one set — not four rows.
+    expect(await testDb().suggestion.count({ where: { userId: userA } })).toBe(2);
+    // ...and the loser is handed the winner's rows rather than an empty list.
+    expect(first.json().suggestions).toHaveLength(2);
+    expect(second.json().suggestions).toHaveLength(2);
+  });
+
   it("ranks the biggest saving first", async () => {
     // Large enough that the trim outranks the gym on every day of the month —
     // the monthly rate shrinks as the month-to-date window lengthens, and a
