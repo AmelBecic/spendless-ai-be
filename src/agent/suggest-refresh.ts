@@ -14,7 +14,7 @@ import { aggregate, discretionaryByCategory } from "./aggregate";
 import { profilePeriod } from "./profile-refresh";
 import { loadLedger } from "./stats";
 import type { LlmClient } from "./anthropic";
-import { runSuggestionAgent, suggestibleExpenses } from "./suggest";
+import { hasAnythingToAdvise, runSuggestionAgent, suggestibleExpenses } from "./suggest";
 
 /** Minimal logging surface, matching the LLM seam's — no coupling to Fastify. */
 export interface SuggestLogger {
@@ -76,7 +76,7 @@ export async function refreshSuggestions(
   // next refresh pays again. Recording "a pass ran today" independently of its
   // output needs a row this schema has no table for; that belongs with the rest
   // of the cost guardrails in SLAI-19.
-  if (discretionary.length === 0 && suggestible.length === 0) return [];
+  if (!hasAnythingToAdvise(discretionary, suggestible)) return [];
 
   const categories = await deps.categories.list();
   const categoryLabels = Object.fromEntries(categories.map((c) => [c.id, c.label]));

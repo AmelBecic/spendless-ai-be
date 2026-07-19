@@ -188,6 +188,23 @@ export function suggestibleExpenses(
   return fixedExpenses.filter((expense) => expense.active && expense.money.currency === currency);
 }
 
+/**
+ * Whether this ledger offers anything a suggestion could rest on.
+ *
+ * The cheapest guard in the system: a user with nothing to trim and nothing to
+ * cancel has no suggestion the model could ground in anything, so the completion
+ * is pure waste. Lives here, shared by `refreshSuggestions` and the eval harness,
+ * rather than being written out at each call site — a copy in the harness would
+ * score its own logic, and moving the model call above this check in the service
+ * would leave every eval case still passing.
+ */
+export function hasAnythingToAdvise(
+  discretionary: CategoryTotal[],
+  suggestible: FixedExpense[],
+): boolean {
+  return discretionary.length > 0 || suggestible.length > 0;
+}
+
 /** The per-request payload: everything volatile, after the cache breakpoint. */
 export function buildSuggestionInput(input: SuggestionAgentInput): string {
   const { profile, stats, discretionaryByCategory, fixedExpenses, categoryLabels } = input;

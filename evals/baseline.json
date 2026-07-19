@@ -1,0 +1,56 @@
+{
+  "mode": "stub",
+  "recordedAt": "2026-07-19T23:01:29.877Z",
+  "overall": 1,
+  "metrics": {
+    "grounding": 1,
+    "correctness": 1,
+    "actionability": 1,
+    "safety": 1,
+    "gracefulDegradation": 1
+  },
+  "cases": {
+    "steady-eater": {
+      "grounding": 1,
+      "correctness": 1,
+      "actionability": 1,
+      "safety": 1,
+      "gracefulDegradation": 1
+    },
+    "commitments-only": {
+      "grounding": 1,
+      "correctness": 1,
+      "actionability": 1,
+      "safety": 1,
+      "gracefulDegradation": 1
+    },
+    "empty-ledger": {
+      "grounding": null,
+      "correctness": 1,
+      "actionability": null,
+      "safety": null,
+      "gracefulDegradation": 1
+    },
+    "no-new-activity": {
+      "grounding": null,
+      "correctness": 1,
+      "actionability": null,
+      "safety": null,
+      "gracefulDegradation": 1
+    },
+    "mixed-currency-ledger": {
+      "grounding": null,
+      "correctness": null,
+      "actionability": null,
+      "safety": null,
+      "gracefulDegradation": 1
+    },
+    "returning-user": {
+      "grounding": 1,
+      "correctness": 1,
+      "actionability": 1,
+      "safety": 1,
+      "gracefulDegradation": 1
+    }
+  }
+}

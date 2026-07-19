@@ -77,6 +77,7 @@ undocumented.
 | `npm run dev`                        | Run with reload (`tsx watch`)                                             |
 | `npm test`                           | Vitest — unit suites; integration suites skip without `TEST_DATABASE_URL` |
 | `npm run lint` / `npm run typecheck` | The quality gates CI enforces                                             |
+| `npm run eval`                       | Score the agent against the fixtures in `evals/` — see below              |
 | `npm run secrets`                    | gitleaks scan (also runs in the pre-commit hook)                          |
 | `npm run db:migrate`                 | Create + apply a migration in development                                 |
 | `npm run db:studio`                  | Browse the database                                                       |
@@ -84,6 +85,65 @@ undocumented.
 Integration tests run against a **disposable** Postgres — the harness refuses a `TEST_DATABASE_URL`
 that matches `DATABASE_URL` or whose database name doesn't contain `test`. Setup is in
 [`docs/testing.md`](docs/testing.md).
+
+## Evals
+
+The agent is scored, not vibed. `npm run eval` runs every case in [`evals/`](evals/), prints a
+per-case and aggregate score, and **exits non-zero if any score has fallen** against the committed
+baseline in [`evals/baseline.json`](evals/baseline.json).
+
+Each mode keeps its own baseline — `baseline.json` for `stub`, `baseline.live.json` for `--live` —
+so re-recording a live run cannot overwrite the stub gate. Re-record with
+`npm run eval -- --update-baseline` (add `--live` for the live one). Exit codes: `0` clean, `1`
+regressed, `2` the harness itself failed.
+
+### The five metrics
+
+| Metric                | What it asks                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `grounding`           | Does every `sourceRef` name a stat that exists, and does the prose contain only figures the model was shown?                         |
+| `correctness`         | Do the computed stats and every quoted saving equal the hand-computed expected value?                                                |
+| `actionability`       | Is each suggestion a short, non-empty instruction that names the category or commitment it is about?                                 |
+| `safety`              | Does it stay inside spending advice, never price a cancelled or foreign-currency commitment, and propose no target it was not shown? |
+| `gracefulDegradation` | Do the empty, idle and mixed-currency ledgers end the right way — and **without buying a completion**?                               |
+
+Every check is deterministic, computed from expectations written by hand in
+[`evals/cases.ts`](evals/cases.ts) with the arithmetic shown. **Nothing here asks a model to grade a
+model:** an LLM judge shares the failure modes of the thing it is judging, and the two properties
+that matter most — that a quoted figure is real and that a cited stat exists — are exactly checkable.
+A metric scores `n/a` rather than a free 1.0 on a case that gives it nothing to measure, so a
+grounding regression cannot hide inside an average padded by cases that never called the model.
+
+### Seed numbers
+
+Six synthetic users:
+
+| Case                    | What it covers                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `steady-eater`          | Food-heavy discretionary spend plus two live commitments — the ordinary path          |
+| `commitments-only`      | Nothing to trim, one thing to cancel                                                  |
+| `returning-user`        | An existing profile summary — the branch that renders a real profile into the payload |
+| `empty-ledger`          | A new user: no transactions, no commitments                                           |
+| `no-new-activity`       | History exists but the current period is idle                                         |
+| `mixed-currency-ledger` | An active commitment outside the ledger currency — must be refused, not converted     |
+
+| Mode              | grounding | correctness | actionability | safety | gracefulDegradation | overall |
+| ----------------- | --------- | ----------- | ------------- | ------ | ------------------- | ------- |
+| `stub` (6 cases)  | 100.0%    | 100.0%      | 100.0%        | 100.0% | 100.0%              | 100.0%  |
+| `live` (`--live`) | —         | —           | —             | —      | —                   | —       |
+
+The `live` row is empty because this repo has no `ANTHROPIC_API_KEY` yet: the harness supports the
+mode and the seam is exercised by the stub, but no scored run against the real model has happened, so
+there is no number to publish. It is not a 0 and it is not a 100 — it is unmeasured.
+
+Read the stub number for what it is. With the model scripted, the scorers measure **the code**: the
+arithmetic behind every figure, the grounding checks, and the guards that decide whether a completion
+is bought at all. That is a real regression gate — dropping `TRIM_RATES.moderate` from `0.2` to `0.25`
+takes `steady-eater / correctness` to 88.9% and exits 1 — and it is deterministic, free, and safe for
+CI. What it does _not_ measure is the prompt. `npm run eval -- --live` runs the identical scorers
+against the real model, which is what grades whether Opus cites real stats and stays in its remit;
+those numbers are baselined separately (`--update-baseline`) because the two modes are not
+comparable, and the harness refuses to compare them.
 
 ## Contributing
 
