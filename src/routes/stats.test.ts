@@ -288,6 +288,27 @@ describe("GET /stats", () => {
     await app.close();
   });
 
+  it("stops walking when a page comes back empty, whatever the cursor says", async () => {
+    // A cursor that never advances past an empty page would otherwise spin
+    // forever: the cap counts rows collected, not trips round the loop.
+    let calls = 0;
+    const stuck: TransactionsRepository = {
+      ...fakeTransactions([]),
+      async list() {
+        calls += 1;
+        return calls === 1
+          ? { items: [tx(2500, "2026-07-07")], nextCursor: "cccccccc-cccc-4ccc-8ccc-000000000009" }
+          : { items: [], nextCursor: "cccccccc-cccc-4ccc-8ccc-000000000009" };
+      },
+    };
+    const app = appWith({ transactionsRepo: stuck });
+
+    const res = await get(app, `/stats?${WINDOW}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().stats.discretionaryTotal).toEqual({ amountCents: 2500, currency: "EUR" });
+    await app.close();
+  });
+
   it("refuses a period holding more transactions than it will aggregate", async () => {
     // Always a full page with a further cursor, so the walk runs into its cap.
     const endless: TransactionsRepository = {

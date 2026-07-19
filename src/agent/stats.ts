@@ -56,6 +56,13 @@ async function listPeriod(
 
   do {
     const page = await repo.list(userId, { from, to, limit: MAX_PAGE_SIZE, cursor });
+    // An empty page ends the walk whatever the cursor says. The row cap below
+    // bounds how much is collected, not how many times we go round, so a cursor
+    // that stops advancing — a filtered or racing implementation returning no
+    // rows alongside a non-null cursor — would otherwise spin here forever,
+    // holding a connection and never reaching the cap.
+    if (page.items.length === 0) break;
+
     items.push(...page.items);
     if (items.length > MAX_LEDGER_TRANSACTIONS) {
       throw new LedgerTooLargeError(MAX_LEDGER_TRANSACTIONS);
