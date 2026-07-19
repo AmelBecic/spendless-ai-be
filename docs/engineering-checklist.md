@@ -5,6 +5,7 @@ a backstop, not your first-pass QA — each run costs real budget, so catch the 
 first. This list grows every time the reviewer catches something that could have been caught up front.
 
 ## Process (the expensive mistakes)
+
 - [ ] **Clean-regen the lockfile after ANY dependency change** before committing:
       `rm -rf node_modules package-lock.json && npm install`. Incremental `npm install` on macOS
       drops linux-only optional deps (e.g. `@emnapi/*`) from the lock → CI `npm ci` fails with
@@ -19,16 +20,19 @@ first. This list grows every time the reviewer catches something that could have
       it costs less than the reviewer finding it later and you fixing it anyway.
 
 ## Errors & observability
+
 - [ ] Never swallow a caught error — log the cause (`catch (err) { log.error({ err }, "...") ; ... }`).
 - [ ] Any health/liveness/external call is **bounded by a timeout** so it can't hang.
 - [ ] Internal error details never leak to clients in production; one consistent error envelope.
 
 ## Runtime & deps
+
 - [ ] Anything `start`/prod runs must be a **runtime dependency**, not a devDependency.
 - [ ] Fresh `npm ci` (incl. CI) has everything it needs — codegen wired (e.g. Prisma `postinstall`),
       no reliance on a transitively-hoisted binary.
 
 ## Database (Postgres / Prisma / Supabase)
+
 - [ ] **Index FK referencing columns** — Postgres does NOT auto-index them; unindexed FKs seq-scan on
       parent delete/update and on category-style filters.
 - [ ] **`@@unique`** wherever "one row per X" is intended (and the writer upserts).
@@ -46,6 +50,7 @@ first. This list grows every time the reviewer catches something that could have
 - [ ] Migrations apply cleanly to an empty DB; no drift (`prisma migrate status` == up to date).
 
 ## Data access & multi-tenancy
+
 - [ ] **Never forward a request body / patch object straight into an ORM `data`.** Build the payload
       from known fields. A typed input parameter is a compile-time promise only — an untyped body
       forwarded by a handler lets the caller write `userId` (reassigning a row to another account),
@@ -64,7 +69,8 @@ first. This list grows every time the reviewer catches something that could have
       promised `ON CONFLICT DO NOTHING` that the ORM does not always emit.)
 
 ## Dates & times on the wire
-- [ ] **A date-time without `Z` or an offset is parsed as *server-local* time** (a bare `YYYY-MM-DD`
+
+- [ ] **A date-time without `Z` or an offset is parsed as _server-local_ time** (a bare `YYYY-MM-DD`
       is UTC) — so the same request means different instants on different hosts, and on a
       positive-offset deployment lands in the previous UTC day. Require the designator on any value
       carrying a time rather than inheriting the server's clock. (SLAI-10.)
@@ -89,9 +95,10 @@ first. This list grows every time the reviewer catches something that could have
       real length. (SLAI-10.)
 
 ## LLM agents (grounding & cost)
+
 - [ ] **Whatever the prompt renders, the grounding scan must allow back.** An allow-list built from
       one source while the payload shows another rejects the model for faithfully quoting a figure
-      this code handed it. Cross-check the allow-list against the *payload builder*, not against the
+      this code handed it. Cross-check the allow-list against the _payload builder_, not against the
       type the figures came from. (SLAI-18: the payload rendered `discretionaryByCategory` totals and
       commitment amounts; the scan only allowed `SpendStats`.)
 - [ ] **A grounding fixture must not let the expected figure coincide with an allowed one.** A single
@@ -104,13 +111,41 @@ first. This list grows every time the reviewer catches something that could have
       record the excess like any other dropped item. (SLAI-18.)
 - [ ] **A "cheapest guard" that keys on written rows never fires when the pass writes none.** An empty
       outcome leaves nothing to short-circuit on, so the user likeliest to produce no output is the
-      one who pays for a completion on every retry. Record *that a pass ran*, separately from what it
+      one who pays for a completion on every retry. Record _that a pass ran_, separately from what it
       produced. (SLAI-18: partly deferred to SLAI-19 — needs a table.)
 - [ ] **Compute money in code, never in the completion** — give the model a qualitative lever and
       keep the rates as constants. And bound the computed figure: a rate scaled up from a partial
       period can exceed int4 even when every input is valid.
 
+## Evals & harnesses
+
+- [ ] **A harness must not hold its own copy of a production guard.** Reimplementing the condition
+      means the harness scores itself: the service can move the model call above the emptiness check,
+      or flip `&&` to `||`, and every case still passes. Extract the predicate and have both call it.
+      (SLAI-20: `hasAnythingToAdvise`, caught in round two.)
+- [ ] **A deny-list regex over model prose needs an advisory context, not a bare noun.** The nouns
+      collide with the product's own vocabulary — a bare `shares?` rejects "share the subscription
+      with a housemate", a bare `tax` rejects "your transport spend includes road tax". When the
+      metric is baselined at 1.0, one false positive fails the build for a _correct_ answer, which is
+      the costliest direction to be wrong in. (SLAI-20.)
+- [ ] **A metric baselined as `n/a` is ungated unless you say otherwise.** "Did the number fall?"
+      never fires when there was no number. Decide explicitly what a `null → value` transition means,
+      and flag a metric that stopped being measured too — otherwise deleting a check reads as "no
+      regression" forever. (SLAI-20.)
+- [ ] **One failing case must not abort the run.** An unguarded `await` in the loop discards every
+      score already computed and prints nothing — in a live/billable harness that throws away real
+      money on a single 429. Record a hard zero with the reason and keep going; exit non-zero for
+      "harness broke" distinctly from "scores regressed". (SLAI-20.)
+- [ ] **Prove the harness fails.** A suite that reports 100% on a healthy tree has demonstrated
+      nothing. Break one property, watch the matching metric — and only that one — drop, then revert.
+- [ ] **Recount the fixtures in the docs before opening the PR.** When the README numbers _are_ the
+      deliverable, prose saying "five cases" over a six-case baseline is a defect in the thing being
+      shipped, not a typo. (SLAI-20: added a sixth case during review and left the count stale.)
+- [ ] **The first run of a mode has no baseline.** Reading it with no existence check dies on a raw
+      ENOENT after all the work is done; print the command that records one. (SLAI-20.)
+
 ## Concurrency
+
 - [ ] **Read-then-write across a slow call is not an invariant.** Two requests both clear an existence
       check and both insert. If the invariant is "one set per X" and a set is several rows, a unique
       constraint cannot express it — serialise on the parent row (`SELECT … FOR UPDATE` inside the
@@ -119,5 +154,6 @@ first. This list grows every time the reviewer catches something that could have
       proves nothing on its own.
 
 ## Secrets & tests
+
 - [ ] No secrets committed; `.env` git-ignored; every key documented in `.env.example`.
 - [ ] Unit tests cover the invariants a refactor could silently break (fixed sets, idempotency, guards).
