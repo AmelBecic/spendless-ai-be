@@ -10,9 +10,11 @@ import { registerHealthRoute } from "./routes/health";
 import { registerCategoriesRoute } from "./routes/categories";
 import { registerFixedExpensesRoutes } from "./routes/fixed-expenses";
 import { registerTransactionsRoutes } from "./routes/transactions";
+import { registerStatsRoute } from "./routes/stats";
 import type { CategoriesRepository } from "./repositories/categories";
 import type { FixedExpensesRepository } from "./repositories/fixed-expenses";
 import type { TransactionsRepository } from "./repositories/transactions";
+import type { ProfilesRepository } from "./repositories/profiles";
 
 export interface AppDeps {
   config: Env;
@@ -23,6 +25,7 @@ export interface AppDeps {
     categories: CategoriesRepository;
     expenses: FixedExpensesRepository;
     transactions: TransactionsRepository;
+    profiles: ProfilesRepository;
   };
 }
 
@@ -91,6 +94,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTransactionsRoutes(app, {
     transactions: deps.repos.transactions,
     categories: deps.repos.categories,
+  });
+  registerStatsRoute(app, {
+    transactions: deps.repos.transactions,
+    expenses: deps.repos.expenses,
+    profiles: deps.repos.profiles,
   });
 
   return app;
