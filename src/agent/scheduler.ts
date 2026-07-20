@@ -14,6 +14,7 @@
 import type { ProfileSummary } from "../domain/types";
 import type { AgentRunsRepository } from "../repositories/agent-runs";
 import type { ProfilesRepository } from "../repositories/profiles";
+import type { Period } from "./aggregate";
 import { profilePeriod, refreshProfile } from "./profile-refresh";
 import { refreshSuggestions, type SuggestRefreshDeps } from "./suggest-refresh";
 import { TimeoutError, withTimeout } from "./timeout";
@@ -88,7 +89,8 @@ async function isIdle(
 }
 
 /**
- * Refresh one user, or skip them. Returns whether a refresh actually ran.
+ * One user's refresh, unbounded. Always called through `refreshUser`, which owns
+ * the wall-clock budget — nothing here should be awaited without that bound.
  *
  * The idle check happens before anything paid: the only cost of an idle user is
  * the two run lookups, the summary read and two counts, all of which are indexed.
@@ -100,15 +102,13 @@ async function isIdle(
  * pass — freshly summarised, nothing recorded since — and their suggestions are
  * never generated at all. Resuming the unfinished half is what closes that.
  */
-async function refreshUser(
+async function refreshUserUnbounded(
   deps: DailyRefreshDeps,
   userId: string,
   now: Date,
-  timeoutMs: number,
+  period: Period,
+  asOfDate: Date,
 ): Promise<boolean> {
-  const period = profilePeriod(now);
-  const asOfDate = new Date(`${period.end}T00:00:00.000Z`);
-
   const [profileDone, suggestionsDone] = await Promise.all([
     deps.agentRuns.hasRun(userId, "profile", asOfDate),
     deps.agentRuns.hasRun(userId, "suggestions", asOfDate),
@@ -136,20 +136,13 @@ async function refreshUser(
     }
 
     try {
-      await withTimeout(refreshProfile(deps, userId, now), timeoutMs, `profile refresh ${userId}`);
+      await refreshProfile(deps, userId, now);
     } catch (err) {
       // Released so a transient failure does not cost the user their whole day —
       // without this, one 503 would leave the claim standing and every retry
-      // until midnight would skip them.
-      //
-      // Except on a timeout. `withTimeout` abandons the operation, it cannot
-      // cancel it, so the refresh may still be in flight and may still write its
-      // summary. Releasing the claim there would let a later tick buy a second
-      // completion for a user who is already being served, and race the two
-      // upserts against each other. A timed-out user waits for tomorrow.
-      if (!(err instanceof TimeoutError)) {
-        await deps.agentRuns.release(userId, "profile", asOfDate);
-      }
+      // until midnight would skip them. A *timeout* is handled by the caller,
+      // which cannot let go of the claim at all; see `refreshUser`.
+      await deps.agentRuns.release(userId, "profile", asOfDate);
       throw err;
     }
   }
@@ -158,13 +151,51 @@ async function refreshUser(
   // the summary the profile pass writes, so running them concurrently would
   // advise against a stale narrative.
   if (!suggestionsDone) {
-    await withTimeout(
-      refreshSuggestions({ ...deps, logger: deps.logger }, userId, now),
-      timeoutMs,
-      `suggestion refresh ${userId}`,
-    );
+    await refreshSuggestions({ ...deps, logger: deps.logger }, userId, now);
   }
   return true;
+}
+
+/**
+ * Refresh one user under a single wall-clock budget, or skip them.
+ *
+ * One bound for the whole user, not one per half. Two inner bounds of `n` let a
+ * user occupy the pass for `2n`, and left the reads *between* them unbounded
+ * entirely — so a wedged database connection could stall the walk indefinitely,
+ * which is the exact failure the budget exists to prevent. Wrapping the whole
+ * unit is the only shape where the number in the option means what it says.
+ *
+ * On a timeout the user is marked done for the day, both halves. `withTimeout`
+ * abandons an operation, it cannot cancel it: the refresh may still be in flight
+ * and may still buy its completion. Retrying it on the next tick would pay for a
+ * second one and race the writes. A timed-out user waits for tomorrow — the same
+ * policy as the profile claim, applied to both halves rather than only the one
+ * that happened to hold a claim.
+ */
+async function refreshUser(
+  deps: DailyRefreshDeps,
+  userId: string,
+  now: Date,
+  timeoutMs: number,
+): Promise<boolean> {
+  const period = profilePeriod(now);
+  const asOfDate = new Date(`${period.end}T00:00:00.000Z`);
+
+  try {
+    return await withTimeout(
+      refreshUserUnbounded(deps, userId, now, period, asOfDate),
+      timeoutMs,
+      `refresh ${userId}`,
+    );
+  } catch (err) {
+    if (err instanceof TimeoutError) {
+      await Promise.all([
+        deps.agentRuns.claim(userId, "profile", asOfDate),
+        deps.agentRuns.claim(userId, "suggestions", asOfDate),
+      ]);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -225,10 +256,23 @@ export interface StartDailyRefreshJobOptions extends DailyRefreshOptions {
   intervalMs: number;
   /** Injected in tests; defaults to the real clock. */
   now?: () => Date;
+  /**
+   * Run a pass immediately on start, rather than waiting a full interval.
+   * Defaults to true — see the note below on why that default is load-bearing.
+   */
+  runOnStart?: boolean;
 }
 
 /**
  * Drive `runDailyRefresh` on an interval for as long as the process lives.
+ *
+ * **A pass runs immediately on start**, and this is not a convenience. The
+ * interval is anchored to process start, so with the 24-hour default the first
+ * tick would fire a day after boot — and any platform that redeploys, restarts
+ * on crash, or sleeps idle instances more often than that resets the timer
+ * before it ever fires. The job would then refresh nobody, ever, while logging
+ * that it had started. The `AgentRun` claim is what makes the extra pass cheap:
+ * a restart mid-day finds everyone already recorded and buys nothing.
  *
  * A pass never overlaps itself. If one run is still going when the next tick
  * fires, the tick is dropped rather than queued: two concurrent passes would
@@ -268,8 +312,18 @@ export function startDailyRefreshJob(
   const timer = setInterval(() => void tick(), options.intervalMs);
   timer.unref();
 
+  let stopped = false;
+  if (options.runOnStart ?? true) {
+    // Not awaited: the caller is `server.ts`, which must go on to listen. The
+    // pass logs its own outcome and swallows its own failures.
+    void (async (): Promise<void> => {
+      if (!stopped) await tick();
+    })();
+  }
+
   return {
     stop(): void {
+      stopped = true;
       clearInterval(timer);
     },
   };

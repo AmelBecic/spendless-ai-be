@@ -92,9 +92,18 @@ DAILY_REFRESH_ENABLED=true
 DAILY_REFRESH_INTERVAL_MINUTES=1440   # once a day
 ```
 
+**A pass runs immediately on start**, not one interval later. The interval is anchored to process
+start, so with the 24-hour default the first tick would land a day after boot — and any platform that
+redeploys, restarts on crash, or sleeps idle instances more often than that resets the timer before it
+ever fires, refreshing nobody while logging that it started. The `agent_runs` record is what makes the
+eager pass cheap: a restart mid-day finds everyone already recorded and buys nothing.
+
 A pass never overlaps itself: if one run is still going when the next tick fires, the tick is
 dropped. One user's failure is logged and counted, and the walk continues — a job that aborted on the
 first bad user would leave everyone behind them stale and discard the completions already paid for.
+Each user is bounded by **one** wall-clock budget covering both agents and the reads between them; a
+timed-out user is marked done for the day, because `withTimeout` abandons work without cancelling it
+and a retry would buy a second completion while the first is still in flight.
 Users are walked **sequentially and deliberately**: the cached prompt prefix has a five-minute TTL,
 so back-to-back calls read the prefix from cache instead of rewriting it at ~1.25× input price. The
 prefix is a per-agent constant carrying no user data, which is what makes it reusable across users.

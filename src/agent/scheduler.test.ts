@@ -12,7 +12,7 @@ import type { ProfileSummariesRepository } from "../repositories/profile-summari
 import type { SuggestionsRepository } from "../repositories/suggestions";
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { AgentRunsRepository, AgentRunKind } from "../repositories/agent-runs";
-import { runDailyRefresh, type DailyRefreshDeps } from "./scheduler";
+import { runDailyRefresh, startDailyRefreshJob, type DailyRefreshDeps } from "./scheduler";
 
 const FOOD = "11111111-1111-1111-1111-111111111111";
 const NOW = new Date("2026-07-20T12:00:00.000Z");
@@ -55,6 +55,10 @@ interface WorldOptions {
   failSuggestionsFor?: Set<string>;
   /** Per user: make the model call hang forever. */
   hangFor?: Set<string>;
+  /** Per user: hang only the *suggestion* call, letting the profile half land. */
+  hangSuggestionsFor?: Set<string>;
+  /** Delay every profile call by this many ms, to eat into a shared budget. */
+  profileDelayMs?: number;
   /** Per user: let the model succeed but fail the write that persists its output. */
   failPersistFor?: Set<string>;
   pageSize?: number;
@@ -197,10 +201,36 @@ function world(options: WorldOptions): World {
       if (userId && request.schemaName === "savings_suggestions" && failSuggestions.has(userId)) {
         return Promise.reject(new Error(`suggestion half exploded for ${userId}`));
       }
+      if (
+        userId &&
+        request.schemaName === "savings_suggestions" &&
+        options.hangSuggestionsFor?.has(userId)
+      ) {
+        return new Promise<never>(() => {});
+      }
       const data =
         request.schemaName === "profile_summary"
           ? { habits: [], trends: [], notableChanges: [], narrative: "Steady." }
           : { suggestions: [] };
+      const delay = request.schemaName === "profile_summary" ? (options.profileDelayMs ?? 0) : 0;
+      if (delay > 0) {
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                data: data as unknown as T,
+                usage: {
+                  inputTokens: 10,
+                  outputTokens: 5,
+                  cacheCreationInputTokens: 0,
+                  cacheReadInputTokens: 0,
+                  estimatedCostUsd: 0,
+                } as never,
+              }),
+            delay,
+          ),
+        );
+      }
       return Promise.resolve({
         data: data as unknown as T,
         usage: {
@@ -414,6 +444,48 @@ describe("runDailyRefresh", () => {
     expect(w.runs.has("unlucky:suggestions")).toBe(false);
   });
 
+  it("marks a timed-out user done for the day, both halves", async () => {
+    // `withTimeout` abandons; it cannot cancel. The abandoned pass is still in
+    // flight and will still buy its completion, so a later tick that retried the
+    // user would pay for a second one. Both halves are marked, not just the one
+    // holding a claim — the suggestion half writes its receipt last, so a timeout
+    // there leaves no marker at all unless this puts one down.
+    const w = world({
+      users: ["hung"],
+      transactions: { hung: [transaction("hung", "2026-07-20T09:00:00.000Z")] },
+      hangFor: new Set(["hung"]),
+    });
+
+    await runDailyRefresh(w.deps, NOW, { perUserTimeoutMs: 20 });
+
+    expect(w.runs.has("hung:profile")).toBe(true);
+    expect(w.runs.has("hung:suggestions")).toBe(true);
+  });
+
+  it("bounds the whole user, not each half separately", async () => {
+    // A budget applied per half lets one user occupy the pass for twice it. The
+    // shape that exposes it is a profile half that *succeeds* after eating most
+    // of the budget, followed by a suggestion half that hangs: with two inner
+    // bounds the second gets a fresh full budget (≈180ms here), with one outer
+    // bound it inherits the ≈20ms remaining and gives up at ≈100ms.
+    const w = world({
+      users: ["slow"],
+      transactions: { slow: [transaction("slow", "2026-07-20T09:00:00.000Z")] },
+      profileDelayMs: 80,
+      hangSuggestionsFor: new Set(["slow"]),
+    });
+
+    const started = Date.now();
+    await runDailyRefresh(w.deps, NOW, { perUserTimeoutMs: 100 });
+    const elapsed = Date.now() - started;
+
+    // Both halves were attempted — otherwise this passes for the wrong reason.
+    expect(w.calls.map((c) => c.schemaName)).toEqual(["profile_summary", "savings_suggestions"]);
+    // Midway between one budget (100) and two (180), so it fails outright on a
+    // per-half bound without flaking on a loaded machine.
+    expect(elapsed).toBeLessThan(140);
+  });
+
   it("holds the claim when a profile refresh times out", async () => {
     // `withTimeout` abandons the operation, it cannot cancel it — so the refresh
     // may still be in flight and may still write. Releasing the claim would let a
@@ -478,7 +550,80 @@ describe("runDailyRefresh", () => {
     expect(prefixes("profile_summary").size).toBe(1);
     expect(prefixes("savings_suggestions").size).toBe(1);
     // And the payloads did vary — otherwise the assertion above would hold
-    // trivially for a stub that sent the same request three times.
+    // trivially for a stub that sent the same request three times. `input` is the
+    // rendered string, so this Set compares content, not object identity.
     expect(new Set(calls.map((c) => c.input)).size).toBeGreaterThan(1);
+  });
+});
+
+describe("startDailyRefreshJob", () => {
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+  const activeWorld = () =>
+    world({
+      users: ["active"],
+      transactions: { active: [transaction("active", "2026-07-20T09:00:00.000Z")] },
+    });
+
+  it("runs a pass immediately rather than waiting a full interval", async () => {
+    // The interval is anchored to process start, so with the 24h default the
+    // first tick lands a day after boot — and any platform that redeploys or
+    // restarts more often than that resets the timer before it ever fires. The
+    // job would refresh nobody, ever, while logging that it had started.
+    const w = activeWorld();
+
+    const job = startDailyRefreshJob(w.deps, {
+      intervalMs: 60_000,
+      now: () => NOW,
+    });
+    await settle();
+    job.stop();
+
+    expect(w.calls.map((c) => c.schemaName)).toEqual(["profile_summary", "savings_suggestions"]);
+  });
+
+  it("can be told not to run on start", async () => {
+    const w = activeWorld();
+
+    const job = startDailyRefreshJob(w.deps, {
+      intervalMs: 60_000,
+      now: () => NOW,
+      runOnStart: false,
+    });
+    await settle();
+    job.stop();
+
+    expect(w.calls).toEqual([]);
+  });
+
+  it("buys nothing on a restart mid-day, so the eager pass is cheap", async () => {
+    // The reason running on start is safe: the day's records are already there.
+    const w = activeWorld();
+
+    const first = startDailyRefreshJob(w.deps, { intervalMs: 60_000, now: () => NOW });
+    await settle();
+    first.stop();
+    const afterBoot = w.calls.length;
+
+    // Same process-restart, same day, same ledger.
+    const second = startDailyRefreshJob(w.deps, { intervalMs: 60_000, now: () => NOW });
+    await settle();
+    second.stop();
+
+    expect(w.calls.length).toBe(afterBoot);
+  });
+
+  it("stops ticking once stopped", async () => {
+    const w = activeWorld();
+
+    const job = startDailyRefreshJob(w.deps, {
+      intervalMs: 15,
+      now: () => NOW,
+      runOnStart: false,
+    });
+    job.stop();
+    await settle();
+
+    expect(w.calls).toEqual([]);
   });
 });

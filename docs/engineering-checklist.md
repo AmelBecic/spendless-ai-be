@@ -189,8 +189,25 @@ first. This list grows every time the reviewer catches something that could have
       permanently — found by the reviewer, not by the tests, which only exercised whole-pass failure.)
 - [ ] **An abandoned operation is not a cancelled one.** `Promise.race` against a timer leaves the
       loser running. Releasing a claim/lock on timeout therefore lets a *second* worker start while
-      the first is still in flight and may still write — so on timeout specifically, hold the claim.
-      Distinguish timeout from ordinary failure in the catch. (SLAI-19.)
+      the first is still in flight and may still write — so on timeout specifically, hold the claim,
+      and mark **every** step of the unit done, not just the one that happened to hold a claim. A
+      step whose marker is written last leaves none at all when it times out. (SLAI-19, both rounds.)
+
+## Timers, budgets & schedulers
+
+- [ ] **A "per-unit" timeout must wrap the unit.** Passing the same budget to each of N inner steps
+      allows N×budget, and leaves the work *between* the steps — usually the DB reads — unbounded
+      entirely, which is the exact hang the budget existed to prevent. One wrapper around the whole
+      unit, or an explicit deadline each step derives its remaining time from. (SLAI-19.)
+- [ ] **A `setInterval` anchored to process start fires only if the process outlives the interval.**
+      With a long period (hourly, daily) on any platform that redeploys, restarts on crash, or sleeps
+      idle instances, the timer is reset before it ever fires and the job silently never runs — while
+      logging that it started. Run once on start, or anchor to wall-clock time and persist the last
+      run. Make the eager pass cheap (idempotent) rather than skipping it. (SLAI-19.)
+- [ ] **Test the driver, not just the work it drives.** A well-tested `runPass()` proves nothing
+      about the `setInterval` around it — the start/stop/overlap behaviour is where the scheduling
+      bugs live, and hand-verifying on a 1-second interval hides every bug that only appears at the
+      real period. (SLAI-19: the never-fires-on-restart bug was invisible to a manual 1s check.)
 
 ## Config & fixtures
 
