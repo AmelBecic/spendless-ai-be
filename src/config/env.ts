@@ -10,7 +10,42 @@ const optionalNonEmpty = z.preprocess(
   z.string().min(1).optional(),
 );
 
-const EnvSchema = z.object({
+// One entry of the CORS allow-list. Credentials are enabled on the CORS layer,
+// so `*` is not a legal value — the browser refuses the combination outright,
+// and accepting it here would quietly turn the allow-list off. Anything with a
+// path, a trailing slash or a non-http(s) scheme is a misconfiguration too: the
+// browser compares the `Origin` header for exact equality, so `http://x/` never
+// matches anything and would fail as a silent deny at request time instead of
+// at boot.
+const allowedOrigin = z.string().superRefine((value, ctx) => {
+  if (value === "*") {
+    ctx.addIssue({
+      code: "custom",
+      message: "must list exact origins — `*` is invalid when credentials are enabled",
+    });
+    return;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    ctx.addIssue({ code: "custom", message: `${value} is not a valid origin` });
+    return;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    ctx.addIssue({ code: "custom", message: `${value} must use http:// or https://` });
+    return;
+  }
+  if (`${url.protocol}//${url.host}` !== value) {
+    ctx.addIssue({
+      code: "custom",
+      message: `${value} must be scheme://host[:port] with no path or trailing slash`,
+    });
+  }
+});
+
+/** Exported for tests that assert on validation without going through the boot cache. */
+export const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
   // Postgres (Supabase). Required — the app cannot run without a database.
@@ -42,6 +77,20 @@ const EnvSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   DAILY_REFRESH_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
+  // Cross-origin access for the web client (SLAI-23). A comma-separated list of
+  // exact origins, and the only thing that opens the API to a browser. Empty by
+  // default: a deploy that has not been told which client to trust allows none,
+  // rather than starting out permissive and being tightened later.
+  CORS_ALLOWED_ORIGINS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter((origin) => origin !== ""),
+    )
+    .pipe(z.array(allowedOrigin)),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

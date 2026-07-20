@@ -22,6 +22,7 @@ import type { SuggestionsRepository } from "./repositories/suggestions";
 import type { AgentRunsRepository } from "./repositories/agent-runs";
 import type { LlmClient } from "./agent/anthropic";
 import { createRateLimiter, rateLimitByUser } from "./http/rate-limit";
+import { registerCors } from "./http/cors";
 
 export interface AppDeps {
   config: Env;
@@ -93,6 +94,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     };
     return reply.status(404).send(body);
   });
+
+  // CORS before anything routed: its hook runs on `onRequest`, so a preflight is
+  // answered ahead of every route's auth preHandler.
+  registerCors(app, deps.config.CORS_ALLOWED_ORIGINS);
 
   // Auth seam: exposes `app.authenticate` for routes to guard with. Registered
   // app-wide here; /health stays public (no preHandler).
