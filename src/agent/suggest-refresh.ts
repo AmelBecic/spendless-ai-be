@@ -4,6 +4,7 @@
 
 import type { Suggestion } from "../domain/types";
 import { AppError } from "../http/errors";
+import type { AgentRunsRepository } from "../repositories/agent-runs";
 import type { CategoriesRepository } from "../repositories/categories";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfilesRepository } from "../repositories/profiles";
@@ -28,6 +29,8 @@ export interface SuggestRefreshDeps {
   profiles: ProfilesRepository;
   summaries: ProfileSummariesRepository;
   suggestions: SuggestionsRepository;
+  /** Records that a pass ran, independently of what it wrote — see below. */
+  agentRuns: AgentRunsRepository;
   /** Read for category labels — the model is shown names, not bare uuids. */
   categories: CategoriesRepository;
   logger: SuggestLogger;
@@ -54,6 +57,14 @@ export async function refreshSuggestions(
 
   const existing = await deps.suggestions.list(userId, { asOfDate });
   if (existing.items.length > 0) return existing.items;
+
+  // The rows above are only half the guard. A pass whose proposals were all
+  // dropped — or that found nothing to advise — writes no rows, so it leaves
+  // nothing for the check above to short-circuit on and every retry that day
+  // buys another completion. The user likeliest to produce no suggestions is
+  // therefore the one who pays most. `agentRuns` records *that* a pass ran,
+  // independently of its output, which is the only thing that closes it.
+  if (await deps.agentRuns.hasRun(userId, "suggestions", asOfDate)) return [];
 
   // Neither read depends on the other, and the agent cannot start without both.
   const [ledger, profile] = await Promise.all([
@@ -88,6 +99,20 @@ export async function refreshSuggestions(
     fixedExpenses: ledger.fixedExpenses,
     categoryLabels,
   });
+
+  // Recorded *after* the call, not before it, and deliberately so.
+  //
+  // As a pre-claim this would double as a mutex, and the loser of a race would
+  // have to be handed an empty list — but the day's set is already serialised on
+  // the user's row inside `createDailySet`, which hands the loser the winner's
+  // rows instead. Two racing refreshes are a rate limit's problem; what this row
+  // exists for is the *next* attempt, hours later, which must not re-buy a pass
+  // that already ran and legitimately produced nothing.
+  //
+  // Recording only on success is the other half: a pass that threw never happened
+  // as far as this table is concerned, so a transient failure costs a retry
+  // rather than the user's whole day.
+  await deps.agentRuns.claim(userId, "suggestions", asOfDate);
 
   // Surfaced, not swallowed: a model that has started citing targets it was
   // never shown is a prompt regression whose only other symptom is a short list.

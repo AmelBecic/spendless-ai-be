@@ -47,6 +47,21 @@ export interface TransactionsRepository {
   update(userId: string, id: string, patch: UpdateTransactionInput): Promise<Transaction | null>;
   /** `false` when the id does not exist **or** belongs to someone else. */
   delete(userId: string, id: string): Promise<boolean>;
+  /**
+   * How many of this user's transactions were *entered* after `since`.
+   *
+   * `createdAt`, not `occurredAt`: the question is bookkeeping ("has anything
+   * been recorded since we last looked?"), and a transaction backdated a week —
+   * normal in a spending app — has an `occurredAt` well before the last refresh
+   * while still being new information. Matching the novelty test the profiling
+   * loop already applies, so the scheduler and the agent agree on what "new"
+   * means.
+   *
+   * A count rather than a listing: the caller only needs to know whether the set
+   * is empty, and a user back from a long break would otherwise page through
+   * everything they entered just to answer yes.
+   */
+  countCreatedSince(userId: string, since: Date): Promise<number>;
 }
 
 function toDomain(row: TransactionRow): Transaction {
@@ -148,6 +163,12 @@ export function createTransactionsRepository(
       // statement — no read-then-delete window.
       const { count } = await prisma.transaction.deleteMany({ where: { id, userId } });
       return count === 1;
+    },
+
+    async countCreatedSince(userId, since) {
+      // Strictly greater: `since` is the previous summary's own `createdAt`, and
+      // the row written at that exact instant is the one we already processed.
+      return prisma.transaction.count({ where: { userId, createdAt: { gt: since } } });
     },
   };
 }

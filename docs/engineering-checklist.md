@@ -144,6 +144,23 @@ first. This list grows every time the reviewer catches something that could have
 - [ ] **The first run of a mode has no baseline.** Reading it with no existence check dies on a raw
       ENOENT after all the work is done; print the command that records one. (SLAI-20.)
 
+## Rate limiting & in-memory guards
+
+- [ ] **A bounded cache's eviction policy is a security decision, not housekeeping.** Evicting the
+      oldest entry is the obvious choice and it is a bypass: a caller who has spent their budget can
+      push `maxKeys` distinct keys through the limiter to evict *their own* counter and get a fresh
+      allowance — and their counter, being the longest-lived, is the first one an oldest-first policy
+      drops. Evict the **newest** so a flood displaces only itself. A wholesale `clear()` on overflow
+      is worse still: it forgives every live caller at once. (SLAI-19: written oldest-first, caught
+      by a test that filled past `maxKeys` and re-checked the exhausted caller.)
+- [ ] **Rate-limit *after* authentication, and key on the user.** Limiting before identity is known
+      buckets every anonymous caller together, so any one of them can lock out the rest.
+- [ ] **Routes that draw on the same paid resource share one budget.** Metering each separately lets
+      a caller alternate between them and spend N times the intended ceiling.
+- [ ] Say in a comment whether an in-process counter is per-instance, and whether that is a trade or
+      an oversight — N instances allow N times the limit, and the next reader cannot tell which was
+      meant.
+
 ## Concurrency
 
 - [ ] **Read-then-write across a slow call is not an invariant.** Two requests both clear an existence
@@ -152,6 +169,25 @@ first. This list grows every time the reviewer catches something that could have
       transaction) instead. Never hold a transaction open across a model call. (SLAI-18.)
 - [ ] Prove a concurrency fix by removing it and watching the test fail — a passing test around a race
       proves nothing on its own.
+- [ ] **A marker written _before_ paid work is a mutex; written _after_, it is a receipt. Pick on
+      purpose.** They are one row apart and behave differently under a race: as a pre-claim the loser
+      must be handed an empty result, which silently breaks a "the loser gets the winner's rows"
+      contract established elsewhere. If the write is already serialised (a row lock), the receipt is
+      what you want — the marker's job is the *retry hours later*, not the race. And record only on
+      success, or one transient failure marks the day done and the user gets nothing until midnight.
+      (SLAI-19: shipped as a pre-claim, caught by SLAI-18's existing race test.)
+
+## Config & fixtures
+
+- [ ] **Centralise the config fixture before adding the second key, not the fifteenth.** A typed
+      `Env` literal copy-pasted across suites means every new variable is a compile error in a dozen
+      files, and the mechanical fix buries the real diff. One `testEnv(overrides)` helper keeps a new
+      key arriving in tests with the same default production gives it. (SLAI-19: four new vars broke
+      13 suites.)
+- [ ] **A "no real values" guard on `.env.example` must still allow inert ones.** Blanking a tuning
+      knob like `REFRESH_RATE_LIMIT=10` costs the reader the documented default for no security gain
+      — a bare number or boolean cannot encode a credential. Widen the allow-list deliberately rather
+      than emptying the template.
 
 ## Secrets & tests
 

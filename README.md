@@ -43,6 +43,54 @@ The seams that matter:
 - **Money is integer cents + a 3-char currency**, never a float, and mixed-currency arithmetic
   throws rather than silently producing a wrong total.
 
+## Cost guardrails
+
+Every profile and suggestion refresh is a paid model call, so the app is built so that the *absence*
+of user activity costs nothing. Three independent guards:
+
+**1. Idle users are skipped.** The daily job measures each user against their last summary's
+`createdAt` — "has anything been entered since we last looked?" — counting both new transactions and
+changed commitments. A user who has done nothing buys no completion; the check is two indexed counts.
+A user who has never been summarised is measured from the epoch, so an empty account is idle too and
+a fresh signup list costs nothing to walk.
+
+**2. One pass per user per day, recorded independently of its output.** `agent_runs` records *that* a
+pass ran. A guard keyed on the rows a pass wrote can never fire for a pass that legitimately writes
+none — which makes the user with the least to advise on the one who pays on every retry. Recording
+only on success keeps a transient failure to a retry rather than losing the user their day.
+
+**3. A per-user rate limit on the paid routes.** `POST /profile/refresh` and `POST /suggestions/refresh`
+share one budget per user (they draw on the same model, so metering them separately would let a
+caller alternate and spend twice the ceiling). Exceeding it is a `429` in the standard error envelope
+with a `Retry-After` header, refused before the model is reached. The counter is in-process and
+per-instance — a deliberate trade, since a shared counter needs Redis and this sprint takes on no
+external infrastructure. It bounds "one user holding down a button", not a precise quota.
+
+Beyond those, every model call is bounded by the SDK's own timeout (2 min per attempt, 3 attempts),
+and each user's whole refresh is bounded again at the job level so one wedged user cannot stall the
+pass behind them.
+
+### The daily refresh job
+
+An in-process interval owned by the server process — no external scheduler, no queue. It is **off by
+default**, because it spends money in the background and running the app locally against a real key
+should not start it:
+
+```bash
+DAILY_REFRESH_ENABLED=true
+DAILY_REFRESH_INTERVAL_MINUTES=1440   # once a day
+```
+
+A pass never overlaps itself: if one run is still going when the next tick fires, the tick is
+dropped. One user's failure is logged and counted, and the walk continues — a job that aborted on the
+first bad user would leave everyone behind them stale and discard the completions already paid for.
+Users are walked **sequentially and deliberately**: the cached prompt prefix has a five-minute TTL,
+so back-to-back calls read the prefix from cache instead of rewriting it at ~1.25× input price. The
+prefix is a per-agent constant carrying no user data, which is what makes it reusable across users.
+
+`runDailyRefresh` is exported separately from the interval that drives it, so the same pass can be
+triggered by an external cron later without changing the job. Deploy wiring is Sprint 4.
+
 ## Running locally
 
 **Prerequisites:** Node ≥ 24 and a Postgres database (Supabase, or any local instance).

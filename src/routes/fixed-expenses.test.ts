@@ -14,9 +14,11 @@ import {
   unusedSummaries,
   unusedSuggestions,
   unusedTransactions,
+  testEnv,
+  unusedAgentRuns,
 } from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const CATEGORY_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_ID = "99999999-9999-9999-9999-999999999999";
@@ -98,6 +100,7 @@ function fakeRepo(seed: FixedExpense[] = []): FixedExpensesRepository & { rows: 
       rows[rows.indexOf(row)] = updated;
       return updated;
     },
+    countChangedSince: () => Promise.reject(new Error("not used by /fixed-expenses")),
   };
 }
 
@@ -108,6 +111,7 @@ function appWith(expenses: FixedExpensesRepository, auth = acceptingAuth, cats =
     auth,
     llm: unusedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories: cats,
       expenses,
       transactions: unusedTransactions,

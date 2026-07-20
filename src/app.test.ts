@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildApp } from "./app";
 import type { Env } from "./config/env";
-import { unusedLlm, unusedRepos } from "./test/stubs";
+import { testEnv, unusedLlm, unusedRepos } from "./test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 // The health/404 paths don't touch auth; a stub keeps buildApp's contract satisfied.
 const stubAuth = {

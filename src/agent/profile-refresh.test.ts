@@ -71,6 +71,7 @@ function fakeTransactions(seed: Transaction[]): TransactionsRepository {
     create: unsupported,
     update: unsupported,
     delete: unsupported,
+    countCreatedSince: unsupported,
   };
 }
 
@@ -84,6 +85,7 @@ function fakeExpenses(seed: FixedExpense[] = []): FixedExpensesRepository {
     create: unsupported,
     update: unsupported,
     deactivate: unsupported,
+    countChangedSince: unsupported,
   };
 }
 
@@ -96,6 +98,7 @@ function fakeProfiles(row: UserProfile | null): ProfilesRepository {
     ensure: async () => {},
     get: async (userId) => (row && row.userId === userId ? row : null),
     update: async () => null,
+    listUserIds: async () => ({ items: [], nextCursor: null }),
   };
 }
 

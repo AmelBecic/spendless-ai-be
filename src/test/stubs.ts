@@ -7,7 +7,30 @@ import type { TransactionsRepository } from "../repositories/transactions";
 import type { ProfilesRepository } from "../repositories/profiles";
 import type { ProfileSummariesRepository } from "../repositories/profile-summaries";
 import type { SuggestionsRepository } from "../repositories/suggestions";
+import type { AgentRunsRepository } from "../repositories/agent-runs";
 import type { LlmClient } from "../agent/anthropic";
+import type { Env } from "../config/env";
+
+/**
+ * The `Env` a test app is built with. Defined once here so adding a config key
+ * does not mean editing the same literal in a dozen suites — and so a new key
+ * arrives in tests with the same default production would give it.
+ *
+ * The refresh limit is deliberately high: it is off the path of every suite
+ * except the one that tests the limiter, which sets its own.
+ */
+export function testEnv(overrides: Partial<Env> = {}): Env {
+  return {
+    NODE_ENV: "test",
+    PORT: 3000,
+    DATABASE_URL: "postgres://test",
+    REFRESH_RATE_LIMIT: 1000,
+    REFRESH_RATE_LIMIT_WINDOW_SEC: 3600,
+    DAILY_REFRESH_ENABLED: false,
+    DAILY_REFRESH_INTERVAL_MINUTES: 1440,
+    ...overrides,
+  };
+}
 
 /**
  * A repository whose every method throws. If a test that claims not to touch
@@ -20,6 +43,7 @@ export const unusedFixedExpenses: FixedExpensesRepository = {
   create: () => Promise.reject(new Error("fixed expenses repository used unexpectedly")),
   update: () => Promise.reject(new Error("fixed expenses repository used unexpectedly")),
   deactivate: () => Promise.reject(new Error("fixed expenses repository used unexpectedly")),
+  countChangedSince: () => Promise.reject(new Error("fixed expenses repository used unexpectedly")),
 };
 
 export const unusedTransactions: TransactionsRepository = {
@@ -28,12 +52,14 @@ export const unusedTransactions: TransactionsRepository = {
   create: () => Promise.reject(new Error("transactions repository used unexpectedly")),
   update: () => Promise.reject(new Error("transactions repository used unexpectedly")),
   delete: () => Promise.reject(new Error("transactions repository used unexpectedly")),
+  countCreatedSince: () => Promise.reject(new Error("transactions repository used unexpectedly")),
 };
 
 export const unusedProfiles: ProfilesRepository = {
   ensure: () => Promise.reject(new Error("profiles repository used unexpectedly")),
   get: () => Promise.reject(new Error("profiles repository used unexpectedly")),
   update: () => Promise.reject(new Error("profiles repository used unexpectedly")),
+  listUserIds: () => Promise.reject(new Error("profiles repository used unexpectedly")),
 };
 
 export const unusedSummaries: ProfileSummariesRepository = {
@@ -47,6 +73,12 @@ export const unusedSuggestions: SuggestionsRepository = {
   create: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
   createDailySet: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
   setStatus: () => Promise.reject(new Error("suggestions repository used unexpectedly")),
+};
+
+export const unusedAgentRuns: AgentRunsRepository = {
+  claim: () => Promise.reject(new Error("agent runs repository used unexpectedly")),
+  release: () => Promise.reject(new Error("agent runs repository used unexpectedly")),
+  hasRun: () => Promise.reject(new Error("agent runs repository used unexpectedly")),
 };
 
 export const emptyCategories: CategoriesRepository = { list: async () => [] };
@@ -82,4 +114,5 @@ export const unusedRepos = {
   profiles: unusedProfiles,
   summaries: unusedSummaries,
   suggestions: unusedSuggestions,
+  agentRuns: unusedAgentRuns,
 };

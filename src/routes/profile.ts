@@ -4,7 +4,7 @@
 // Both are scoped to `req.user.id` and never read a user id from the request, so
 // there is no parameter a caller could set to reach someone else's profile.
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import type { ProfileSummary } from "../domain/types";
 import { MixedCurrencyError } from "../domain/money";
 import { LedgerTooLargeError } from "../agent/stats";
@@ -13,7 +13,11 @@ import type { ProfileSummariesRepository } from "../repositories/profile-summari
 import { requireUser } from "../auth/plugin";
 import { AppError } from "../http/errors";
 
-export type ProfileDeps = ProfileRefreshDeps & { summaries: ProfileSummariesRepository };
+export type ProfileDeps = ProfileRefreshDeps & {
+  summaries: ProfileSummariesRepository;
+  /** Meters the paid refresh route per user. GET /profile is free and unmetered. */
+  refreshRateLimit: preHandlerHookHandler;
+};
 
 export interface ProfileResponse {
   profile: ProfileSummary;
@@ -34,7 +38,8 @@ export function registerProfileRoutes(app: FastifyInstance, deps: ProfileDeps): 
 
   app.post(
     "/profile/refresh",
-    { preHandler: app.authenticate },
+    // Order matters: authenticate first, so the limiter has a user to key on.
+    { preHandler: [app.authenticate, deps.refreshRateLimit] },
     async (req, reply): Promise<ProfileResponse> => {
       const user = requireUser(req);
 

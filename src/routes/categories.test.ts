@@ -12,9 +12,11 @@ import {
   unusedSummaries,
   unusedSuggestions,
   unusedTransactions,
+  testEnv,
+  unusedAgentRuns,
 } from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 // Token verification itself is covered in auth/auth.test.ts; here the verifier is
 // a stub that either accepts or rejects, so these tests stay about the route.
@@ -35,6 +37,7 @@ function appWith(categories: CategoriesRepository, auth = acceptingAuth) {
     auth,
     llm: unusedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories,
       expenses: unusedFixedExpenses,
       transactions: unusedTransactions,

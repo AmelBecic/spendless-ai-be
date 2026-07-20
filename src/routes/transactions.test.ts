@@ -11,9 +11,11 @@ import {
   unusedProfiles,
   unusedSummaries,
   unusedSuggestions,
+  testEnv,
+  unusedAgentRuns,
 } from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const CATEGORY_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_ID = "99999999-9999-9999-9999-999999999999";
@@ -110,6 +112,7 @@ function fakeRepo(seed: Transaction[] = []): TransactionsRepository & { rows: Tr
       rows.splice(rows.indexOf(row), 1);
       return true;
     },
+    countCreatedSince: () => Promise.reject(new Error("not used by /transactions")),
   };
 }
 
@@ -124,6 +127,7 @@ function appWith(
     auth,
     llm: unusedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories: cats,
       expenses: unusedFixedExpenses,
       transactions,

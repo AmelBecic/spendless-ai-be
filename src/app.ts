@@ -19,7 +19,9 @@ import type { TransactionsRepository } from "./repositories/transactions";
 import type { ProfilesRepository } from "./repositories/profiles";
 import type { ProfileSummariesRepository } from "./repositories/profile-summaries";
 import type { SuggestionsRepository } from "./repositories/suggestions";
+import type { AgentRunsRepository } from "./repositories/agent-runs";
 import type { LlmClient } from "./agent/anthropic";
+import { createRateLimiter, rateLimitByUser } from "./http/rate-limit";
 
 export interface AppDeps {
   config: Env;
@@ -35,6 +37,7 @@ export interface AppDeps {
     profiles: ProfilesRepository;
     summaries: ProfileSummariesRepository;
     suggestions: SuggestionsRepository;
+    agentRuns: AgentRunsRepository;
   };
 }
 
@@ -109,6 +112,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     expenses: deps.repos.expenses,
     profiles: deps.repos.profiles,
   });
+  // One budget spanning both refresh routes, deliberately: they draw on the same
+  // paid model, so a per-route limit would let a caller alternate between them
+  // and spend twice the intended ceiling.
+  const refreshLimiter = createRateLimiter({
+    limit: deps.config.REFRESH_RATE_LIMIT,
+    windowMs: deps.config.REFRESH_RATE_LIMIT_WINDOW_SEC * 1000,
+  });
+  const refreshRateLimit = rateLimitByUser(refreshLimiter, "refresh");
+
   registerProfileRoutes(app, {
     llm: deps.llm,
     transactions: deps.repos.transactions,
@@ -116,6 +128,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     profiles: deps.repos.profiles,
     summaries: deps.repos.summaries,
     categories: deps.repos.categories,
+    refreshRateLimit,
   });
   registerSuggestionsRoutes(app, {
     llm: deps.llm,
@@ -124,8 +137,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     profiles: deps.repos.profiles,
     summaries: deps.repos.summaries,
     suggestions: deps.repos.suggestions,
+    agentRuns: deps.repos.agentRuns,
     categories: deps.repos.categories,
     logger: app.log,
+    refreshRateLimit,
   });
 
   return app;

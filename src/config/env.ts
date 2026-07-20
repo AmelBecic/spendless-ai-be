@@ -28,6 +28,20 @@ const EnvSchema = z.object({
   // client is constructed: nothing builds it yet, so today it would surface on
   // first use. SLAI-17 wires it into startup and should make this required then.
   ANTHROPIC_API_KEY: optionalNonEmpty,
+  // Cost guardrails (SLAI-19). The refresh routes are the only ones where a
+  // single request buys a paid completion, so they are metered per user.
+  // Defaults are deliberately generous enough not to obstruct real use and tight
+  // enough that a stuck client cannot run up a bill.
+  REFRESH_RATE_LIMIT: z.coerce.number().int().nonnegative().default(10),
+  REFRESH_RATE_LIMIT_WINDOW_SEC: z.coerce.number().int().positive().default(3600),
+  // The in-process daily refresh. Off by default: it is a background spender,
+  // and a developer running the app locally against a real key should have to
+  // opt in rather than discover it on their bill. Sprint 4 turns it on in deploy.
+  DAILY_REFRESH_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  DAILY_REFRESH_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
