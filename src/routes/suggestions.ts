@@ -6,7 +6,7 @@
 // repository, so there is no parameter a client could set to reach another
 // user's row — a foreign id is a 404, indistinguishable from a missing one.
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { z } from "zod";
 import type { Suggestion } from "../domain/types";
 import { MixedCurrencyError } from "../domain/money";
@@ -19,7 +19,11 @@ import { AppError } from "../http/errors";
 import { parseOrThrow } from "../http/validation";
 import { isoDate } from "./fields";
 
-export type SuggestionsDeps = SuggestRefreshDeps & { suggestions: SuggestionsRepository };
+export type SuggestionsDeps = SuggestRefreshDeps & {
+  suggestions: SuggestionsRepository;
+  /** Meters the paid refresh route per user. GET and PATCH are free and unmetered. */
+  refreshRateLimit: preHandlerHookHandler;
+};
 
 /** The single-suggestion response body (PATCH). */
 export interface SuggestionResponse {
@@ -86,26 +90,33 @@ export function registerSuggestionsRoutes(app: FastifyInstance, deps: Suggestion
     return { suggestion };
   });
 
-  app.post("/suggestions/refresh", guard, async (req, reply): Promise<SuggestionsResponse> => {
-    const user = requireUser(req);
+  // Order matters: authenticate first, so the limiter has a user to key on.
+  const meteredGuard = { preHandler: [app.authenticate, deps.refreshRateLimit] };
 
-    try {
-      const suggestions = await refreshSuggestions(deps, user.id, new Date());
-      // 200, not 201: the set is per-day, so a second refresh returns the rows
-      // that already exist rather than creating more.
-      reply.status(200);
-      return { suggestions, nextCursor: null };
-    } catch (err) {
-      if (err instanceof MixedCurrencyError) {
-        // Same reasoning as GET /stats: the request is well-formed, the stored
-        // ledger is not, and no saving computed over it would carry an honest
-        // label.
-        throw new AppError(409, "MIXED_CURRENCY", err.message, { cause: err });
+  app.post(
+    "/suggestions/refresh",
+    meteredGuard,
+    async (req, reply): Promise<SuggestionsResponse> => {
+      const user = requireUser(req);
+
+      try {
+        const suggestions = await refreshSuggestions(deps, user.id, new Date());
+        // 200, not 201: the set is per-day, so a second refresh returns the rows
+        // that already exist rather than creating more.
+        reply.status(200);
+        return { suggestions, nextCursor: null };
+      } catch (err) {
+        if (err instanceof MixedCurrencyError) {
+          // Same reasoning as GET /stats: the request is well-formed, the stored
+          // ledger is not, and no saving computed over it would carry an honest
+          // label.
+          throw new AppError(409, "MIXED_CURRENCY", err.message, { cause: err });
+        }
+        if (err instanceof LedgerTooLargeError) {
+          throw new AppError(422, "PERIOD_TOO_LARGE", err.message, { cause: err });
+        }
+        throw err;
       }
-      if (err instanceof LedgerTooLargeError) {
-        throw new AppError(422, "PERIOD_TOO_LARGE", err.message, { cause: err });
-      }
-      throw err;
-    }
-  });
+    },
+  );
 }

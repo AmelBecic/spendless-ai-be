@@ -144,6 +144,23 @@ first. This list grows every time the reviewer catches something that could have
 - [ ] **The first run of a mode has no baseline.** Reading it with no existence check dies on a raw
       ENOENT after all the work is done; print the command that records one. (SLAI-20.)
 
+## Rate limiting & in-memory guards
+
+- [ ] **A bounded cache's eviction policy is a security decision, not housekeeping.** Evicting the
+      oldest entry is the obvious choice and it is a bypass: a caller who has spent their budget can
+      push `maxKeys` distinct keys through the limiter to evict *their own* counter and get a fresh
+      allowance — and their counter, being the longest-lived, is the first one an oldest-first policy
+      drops. Evict the **newest** so a flood displaces only itself. A wholesale `clear()` on overflow
+      is worse still: it forgives every live caller at once. (SLAI-19: written oldest-first, caught
+      by a test that filled past `maxKeys` and re-checked the exhausted caller.)
+- [ ] **Rate-limit *after* authentication, and key on the user.** Limiting before identity is known
+      buckets every anonymous caller together, so any one of them can lock out the rest.
+- [ ] **Routes that draw on the same paid resource share one budget.** Metering each separately lets
+      a caller alternate between them and spend N times the intended ceiling.
+- [ ] Say in a comment whether an in-process counter is per-instance, and whether that is a trade or
+      an oversight — N instances allow N times the limit, and the next reader cannot tell which was
+      meant.
+
 ## Concurrency
 
 - [ ] **Read-then-write across a slow call is not an invariant.** Two requests both clear an existence
@@ -152,6 +169,57 @@ first. This list grows every time the reviewer catches something that could have
       transaction) instead. Never hold a transaction open across a model call. (SLAI-18.)
 - [ ] Prove a concurrency fix by removing it and watching the test fail — a passing test around a race
       proves nothing on its own.
+- [ ] **A marker written _before_ paid work is a mutex; written _after_, it is a receipt. Pick on
+      purpose.** They are one row apart and behave differently under a race: as a pre-claim the loser
+      must be handed an empty result, which silently breaks a "the loser gets the winner's rows"
+      contract established elsewhere. If the write is already serialised (a row lock), the receipt is
+      what you want — the marker's job is the *retry hours later*, not the race. And record only on
+      success, or one transient failure marks the day done and the user gets nothing until midnight.
+      Using **both** meanings in one codebase is fine, but say so where the primitive is defined —
+      otherwise the two call sites read as one of them being a bug. (SLAI-19: shipped as a pre-claim,
+      caught by SLAI-18's existing race test; the mixed semantics were then flagged by the reviewer.)
+- [ ] **A receipt goes after the durable write, not after the expensive call.** Recorded between the
+      model call and the insert, a failed insert marks the day done with nothing stored — which is
+      the precise outcome recording-on-success was supposed to prevent. (SLAI-19.)
+- [ ] **A multi-step pass must gate its steps separately when step 1 changes step 2's precondition.**
+      Step 1 writing a row that the "should we run at all?" check reads means a pass that half-fails
+      makes the subject look *up to date* forever, and step 2 never runs again. Ask what the skip
+      predicate reads, and whether an earlier step writes it. (SLAI-19: the profile half writes the
+      summary that `isIdle` measures novelty from, so a suggestion-half failure stranded the user
+      permanently — found by the reviewer, not by the tests, which only exercised whole-pass failure.)
+- [ ] **An abandoned operation is not a cancelled one.** `Promise.race` against a timer leaves the
+      loser running. Releasing a claim/lock on timeout therefore lets a *second* worker start while
+      the first is still in flight and may still write — so on timeout specifically, hold the claim,
+      and mark **every** step of the unit done, not just the one that happened to hold a claim. A
+      step whose marker is written last leaves none at all when it times out. (SLAI-19, both rounds.)
+
+## Timers, budgets & schedulers
+
+- [ ] **A "per-unit" timeout must wrap the unit.** Passing the same budget to each of N inner steps
+      allows N×budget, and leaves the work *between* the steps — usually the DB reads — unbounded
+      entirely, which is the exact hang the budget existed to prevent. One wrapper around the whole
+      unit, or an explicit deadline each step derives its remaining time from. (SLAI-19.)
+- [ ] **A `setInterval` anchored to process start fires only if the process outlives the interval.**
+      With a long period (hourly, daily) on any platform that redeploys, restarts on crash, or sleeps
+      idle instances, the timer is reset before it ever fires and the job silently never runs — while
+      logging that it started. Run once on start, or anchor to wall-clock time and persist the last
+      run. Make the eager pass cheap (idempotent) rather than skipping it. (SLAI-19.)
+- [ ] **Test the driver, not just the work it drives.** A well-tested `runPass()` proves nothing
+      about the `setInterval` around it — the start/stop/overlap behaviour is where the scheduling
+      bugs live, and hand-verifying on a 1-second interval hides every bug that only appears at the
+      real period. (SLAI-19: the never-fires-on-restart bug was invisible to a manual 1s check.)
+
+## Config & fixtures
+
+- [ ] **Centralise the config fixture before adding the second key, not the fifteenth.** A typed
+      `Env` literal copy-pasted across suites means every new variable is a compile error in a dozen
+      files, and the mechanical fix buries the real diff. One `testEnv(overrides)` helper keeps a new
+      key arriving in tests with the same default production gives it. (SLAI-19: four new vars broke
+      13 suites.)
+- [ ] **A "no real values" guard on `.env.example` must still allow inert ones.** Blanking a tuning
+      knob like `REFRESH_RATE_LIMIT=10` costs the reader the documented default for no security gain
+      — a bare number or boolean cannot encode a credential. Widen the allow-list deliberately rather
+      than emptying the template.
 
 ## Secrets & tests
 

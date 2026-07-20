@@ -5,7 +5,7 @@ import type { AuthDeps } from "../auth/plugin";
 import { createRepositories } from "../repositories";
 import { MAX_PAGE_SIZE } from "../repositories/shared";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
-import { unusedLlm } from "../test/stubs";
+import { testEnv, unusedLlm } from "../test/stubs";
 
 // /stats against a real Postgres with the real repositories behind it. The route
 // tests prove the arithmetic given a well-behaved store; this proves the reads
@@ -13,11 +13,7 @@ import { unusedLlm } from "../test/stubs";
 // really does collect more than one page, and that the `userId` scoping holds so
 // one user's total can never absorb another's spend.
 describe.skipIf(!hasTestDatabase)("GET /stats (integration)", () => {
-  const testConfig: Env = {
-    NODE_ENV: "test",
-    PORT: 3000,
-    DATABASE_URL: process.env.TEST_DATABASE_URL!,
-  };
+  const testConfig: Env = testEnv({ DATABASE_URL: process.env.TEST_DATABASE_URL! });
 
   const userA = "00000000-0000-0000-0000-00000000000a";
   const userB = "00000000-0000-0000-0000-00000000000b";

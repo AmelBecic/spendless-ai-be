@@ -6,9 +6,16 @@ import type { AuthDeps } from "../auth/plugin";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfilesRepository } from "../repositories/profiles";
 import type { TransactionsRepository } from "../repositories/transactions";
-import { emptyCategories, unusedLlm, unusedSuggestions, unusedSummaries } from "../test/stubs";
+import {
+  emptyCategories,
+  unusedAgentRuns,
+  testEnv,
+  unusedLlm,
+  unusedSuggestions,
+  unusedSummaries,
+} from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
@@ -85,6 +92,7 @@ function fakeTransactions(seed: Transaction[]): TransactionsRepository {
     create: unsupported,
     update: unsupported,
     delete: unsupported,
+    countCreatedSince: unsupported,
   };
 }
 
@@ -98,6 +106,7 @@ function fakeExpenses(seed: FixedExpense[]): FixedExpensesRepository {
     create: unsupported,
     update: unsupported,
     deactivate: unsupported,
+    countChangedSince: unsupported,
   };
 }
 
@@ -106,6 +115,7 @@ function fakeProfiles(row: UserProfile | null): ProfilesRepository {
     ensure: async () => {},
     get: async (userId) => (row && row.userId === userId ? row : null),
     update: async () => null,
+    listUserIds: async () => ({ items: [], nextCursor: null }),
   };
 }
 
@@ -122,6 +132,7 @@ function appWith(options: {
     auth: options.auth ?? authAs(USER),
     llm: unusedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories: emptyCategories,
       expenses: fakeExpenses(options.expenses ?? []),
       transactions: options.transactionsRepo ?? fakeTransactions(options.transactions ?? []),

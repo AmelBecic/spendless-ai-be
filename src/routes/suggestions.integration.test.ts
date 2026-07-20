@@ -8,7 +8,7 @@ import { profilePeriod } from "../agent/profile-refresh";
 import { TRIM_RATES } from "../agent/suggest";
 import { createRepositories } from "../repositories";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
-import { nth } from "../test/stubs";
+import { nth, testEnv } from "../test/stubs";
 
 // The suggestion loop against a real Postgres. The route tests prove the handler
 // given a well-behaved store; this proves what only the database can show — that
@@ -16,11 +16,7 @@ import { nth } from "../test/stubs";
 // traces back to a stat the API itself reports, that a citation the model
 // invented never becomes a row, and that no part of it crosses between users.
 describe.skipIf(!hasTestDatabase)("/suggestions (integration)", () => {
-  const testConfig: Env = {
-    NODE_ENV: "test",
-    PORT: 3000,
-    DATABASE_URL: process.env.TEST_DATABASE_URL!,
-  };
+  const testConfig: Env = testEnv({ DATABASE_URL: process.env.TEST_DATABASE_URL! });
 
   const userA = "00000000-0000-0000-0000-00000000000a";
   const userB = "00000000-0000-0000-0000-00000000000b";
@@ -298,6 +294,36 @@ describe.skipIf(!hasTestDatabase)("/suggestions (integration)", () => {
     // One refresh, one completion — the day's set short-circuits the second.
     expect(requests).toHaveLength(1);
     expect(await testDb().suggestion.count({ where: { userId: userA } })).toBe(1);
+  });
+
+  it("does not pay again after a pass that produced no rows", async () => {
+    // The hole the day-guard on written rows could never close (deferred here
+    // from SLAI-18): the user has plenty to advise on, the model runs, and every
+    // proposal it returns is ungrounded and dropped. Zero rows are written, so a
+    // guard keyed on rows finds nothing to short-circuit on and the next refresh
+    // buys another completion — for the user whose passes produce nothing, on
+    // every retry, forever. `agent_runs` records that the pass happened.
+    await spend(userA, 20000, foodId);
+    // A citation to a category the model was never shown — dropped by the
+    // grounding scan, so the pass writes nothing.
+    proposals = [trim("00000000-0000-0000-0000-0000000000ff")];
+
+    const first = await refresh(userA);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().suggestions).toHaveLength(0);
+    expect(requests).toHaveLength(1);
+    expect(await testDb().suggestion.count({ where: { userId: userA } })).toBe(0);
+
+    // The pass is on record even though it produced nothing...
+    const runs = await testDb().agentRun.findMany({
+      where: { userId: userA, kind: "suggestions" },
+    });
+    expect(runs).toHaveLength(1);
+
+    // ...so the retry costs nothing.
+    const second = await refresh(userA);
+    expect(second.statusCode).toBe(200);
+    expect(requests).toHaveLength(1);
   });
 
   it("does not pay for a completion when there is nothing to suggest", async () => {

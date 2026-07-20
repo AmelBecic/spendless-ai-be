@@ -8,9 +8,16 @@ import type { ProfileSummariesRepository } from "../repositories/profile-summari
 import type { TransactionsRepository } from "../repositories/transactions";
 import type { LlmClient } from "../agent/anthropic";
 import { MODEL } from "../agent/anthropic";
-import { emptyCategories, unusedLlm, unusedSuggestions, unusedSummaries } from "../test/stubs";
+import {
+  emptyCategories,
+  unusedAgentRuns,
+  testEnv,
+  unusedLlm,
+  unusedSuggestions,
+  unusedSummaries,
+} from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
@@ -60,6 +67,7 @@ function fakeProfiles(rows: UserProfile[]): ProfilesRepository {
     ensure: async () => {},
     get: async (userId) => rows.find((row) => row.userId === userId) ?? null,
     update: async () => null,
+    listUserIds: async () => ({ items: [], nextCursor: null }),
   };
 }
 
@@ -73,6 +81,7 @@ function fakeTransactions(seed: Transaction[]): TransactionsRepository {
     create: unsupported,
     update: unsupported,
     delete: unsupported,
+    countCreatedSince: unsupported,
   };
 }
 
@@ -128,6 +137,7 @@ function appWith(options: {
     auth: options.auth ?? authAs(USER),
     llm: options.llm ?? groundedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories: emptyCategories,
       expenses: {
         list: async () => [],
@@ -135,6 +145,7 @@ function appWith(options: {
         create: () => Promise.reject(new Error("unused")),
         update: () => Promise.reject(new Error("unused")),
         deactivate: () => Promise.reject(new Error("unused")),
+        countChangedSince: () => Promise.reject(new Error("unused")),
       },
       transactions: fakeTransactions(options.transactions ?? []),
       profiles: fakeProfiles(options.profiles ?? [profileRow(USER)]),

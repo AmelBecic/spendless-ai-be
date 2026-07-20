@@ -12,9 +12,11 @@ import {
   unusedSummaries,
   unusedTransactions,
   unusedFixedExpenses,
+  testEnv,
+  unusedAgentRuns,
 } from "../test/stubs";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
@@ -60,6 +62,7 @@ function fakeProfiles(rows: UserProfile[]): ProfilesRepository {
     ensure: async () => {},
     get: async (userId) => rows.find((row) => row.userId === userId) ?? null,
     update: async () => null,
+    listUserIds: async () => ({ items: [], nextCursor: null }),
   };
 }
 
@@ -106,6 +109,7 @@ function appWith(options: {
     auth: options.auth ?? authAs(USER),
     llm: options.llm ?? unusedLlm,
     repos: {
+      agentRuns: unusedAgentRuns,
       categories: emptyCategories,
       expenses: unusedFixedExpenses,
       transactions: unusedTransactions,

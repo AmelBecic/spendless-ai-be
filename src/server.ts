@@ -10,6 +10,7 @@ import { createPrismaProfileStore } from "./auth/profile-store";
 import { withProvisioningCache } from "./auth/provisioning-cache";
 import { createRepositories } from "./repositories";
 import { createAnthropicLlmClient, type LlmLogger } from "./agent/anthropic";
+import { startDailyRefreshJob } from "./agent/scheduler";
 import { buildApp } from "./app";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -49,8 +50,27 @@ async function main(): Promise<void> {
   const app = buildApp({ config, db: { ping: () => pingPool(pool) }, auth, llm, repos });
   sink.logger = app.log;
 
+  // The in-process daily refresh. Opt-in: it is a background spender, so it must
+  // not start just because someone ran the server with a real key in their .env.
+  // Sprint 4 turns it on in the deployed environment.
+  const refreshJob = config.DAILY_REFRESH_ENABLED
+    ? startDailyRefreshJob(
+        { llm, ...repos, logger: app.log },
+        { intervalMs: config.DAILY_REFRESH_INTERVAL_MINUTES * 60_000 },
+      )
+    : undefined;
+  if (refreshJob) {
+    app.log.info(
+      { intervalMinutes: config.DAILY_REFRESH_INTERVAL_MINUTES },
+      "daily refresh job started",
+    );
+  }
+
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received — shutting down`);
+    // Stopped before the app closes so a tick cannot start against a closing
+    // pool and log a spurious failure on the way out.
+    refreshJob?.stop();
     await app.close();
     await pool.end();
     await prisma.$disconnect();

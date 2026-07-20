@@ -1,10 +1,16 @@
 // The caller's own settings row. `userId` is this table's primary key, so every
-// method here is inherently single-user — there is no query shape that could
-// reach another user's profile.
+// request-scoped method here is inherently single-user — there is no query shape
+// a caller could bend to reach another user's profile.
+//
+// `listUserIds` is the one deliberate exception, and it is not request-scoped:
+// the daily refresh job acts on behalf of no caller, so it needs the roster of
+// users to walk. It returns ids and nothing else — no profile fields cross the
+// boundary — and no route may call it. Everything a route reaches stays scoped
+// to `req.user.id` exactly as before.
 
 import type { PrismaClient, UserProfile as UserProfileRow } from "@prisma/client";
 import type { UserProfile } from "../domain/types";
-import { isUniqueViolation, nullIfNotFound } from "./shared";
+import { isUniqueViolation, nullIfNotFound, pageSize, type Page } from "./shared";
 
 /** The fields a user may change on their own profile. */
 export interface ProfilePatch {
@@ -24,6 +30,24 @@ export interface ProfilesRepository {
   get(userId: string): Promise<UserProfile | null>;
   /** Returns `null` if the profile does not exist. */
   update(userId: string, patch: ProfilePatch): Promise<UserProfile | null>;
+  /**
+   * One page of user ids, for the scheduled refresh to walk. **Not for routes** —
+   * see the note at the top of this file.
+   *
+   * Cursor-paged over the primary key: this table grows with signups, so an
+   * unpaged read is a slow leak that only shows up once the product works. The
+   * cursor is the last id of the previous page and the order is `userId asc`,
+   * which is total (it is the primary key) and so cannot skip or repeat a row
+   * mid-walk the way a timestamp ordering could.
+   */
+  listUserIds(options?: ListUserIdsOptions): Promise<Page<string>>;
+}
+
+export interface ListUserIdsOptions {
+  /** Clamped to 1..200; defaults to 50. */
+  limit?: number;
+  /** The last id of the previous page. */
+  cursor?: string;
 }
 
 function toDomain(row: UserProfileRow): UserProfile {
@@ -82,6 +106,25 @@ export function createProfilesRepository(
         }),
       );
       return row ? toDomain(row) : null;
+    },
+
+    async listUserIds(options = {}) {
+      const size = pageSize(options.limit);
+      const rows = await prisma.userProfile.findMany({
+        // Ids only: the scheduler loads what it needs per user through the
+        // scoped repositories, so no profile field needs to travel with them.
+        select: { userId: true },
+        orderBy: { userId: "asc" },
+        // One extra row says whether a further page exists, with no count query.
+        take: size + 1,
+        ...(options.cursor ? { cursor: { userId: options.cursor }, skip: 1 } : {}),
+      });
+
+      const page = rows.slice(0, size).map((row) => row.userId);
+      return {
+        items: page,
+        nextCursor: rows.length > size ? (page.at(-1) ?? null) : null,
+      };
     },
   };
 }

@@ -8,6 +8,7 @@
 // reference data with no owner and no `userId` column — see ./categories.ts.
 
 import type { PrismaClient } from "@prisma/client";
+import { createAgentRunsRepository, type AgentRunsRepository } from "./agent-runs";
 import { createCategoriesRepository, type CategoriesRepository } from "./categories";
 import { createProfilesRepository, type ProfilesRepository } from "./profiles";
 import { createFixedExpensesRepository, type FixedExpensesRepository } from "./fixed-expenses";
@@ -25,10 +26,12 @@ export interface Repositories {
   transactions: TransactionsRepository;
   suggestions: SuggestionsRepository;
   summaries: ProfileSummariesRepository;
+  agentRuns: AgentRunsRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
+    agentRuns: createAgentRunsRepository(prisma),
     categories: createCategoriesRepository(prisma),
     profiles: createProfilesRepository(prisma),
     expenses: createFixedExpensesRepository(prisma),
@@ -38,8 +41,9 @@ export function createRepositories(prisma: PrismaClient): Repositories {
   };
 }
 
+export type { AgentRunsRepository, AgentRunKind } from "./agent-runs";
 export type { CategoriesRepository } from "./categories";
-export type { ProfilesRepository, ProfilePatch } from "./profiles";
+export type { ProfilesRepository, ProfilePatch, ListUserIdsOptions } from "./profiles";
 export type {
   FixedExpensesRepository,
   CreateFixedExpenseInput,

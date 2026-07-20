@@ -6,7 +6,7 @@ import type { LlmClient, LlmRequest } from "../agent/anthropic";
 import { MODEL } from "../agent/anthropic";
 import { createRepositories } from "../repositories";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
-import { nth } from "../test/stubs";
+import { nth, testEnv } from "../test/stubs";
 
 // The profiling loop against a real Postgres. The route tests prove the handler
 // given a well-behaved store; this proves the parts only the database can show —
@@ -14,11 +14,7 @@ import { nth } from "../test/stubs";
 // really is one row per user per day, that a second refresh reads only the new
 // activity, and that neither endpoint can be pointed at another user's profile.
 describe.skipIf(!hasTestDatabase)("/profile (integration)", () => {
-  const testConfig: Env = {
-    NODE_ENV: "test",
-    PORT: 3000,
-    DATABASE_URL: process.env.TEST_DATABASE_URL!,
-  };
+  const testConfig: Env = testEnv({ DATABASE_URL: process.env.TEST_DATABASE_URL! });
 
   const userA = "00000000-0000-0000-0000-00000000000a";
   const userB = "00000000-0000-0000-0000-00000000000b";

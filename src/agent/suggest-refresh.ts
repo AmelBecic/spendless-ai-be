@@ -4,6 +4,7 @@
 
 import type { Suggestion } from "../domain/types";
 import { AppError } from "../http/errors";
+import type { AgentRunsRepository } from "../repositories/agent-runs";
 import type { CategoriesRepository } from "../repositories/categories";
 import type { FixedExpensesRepository } from "../repositories/fixed-expenses";
 import type { ProfilesRepository } from "../repositories/profiles";
@@ -28,6 +29,8 @@ export interface SuggestRefreshDeps {
   profiles: ProfilesRepository;
   summaries: ProfileSummariesRepository;
   suggestions: SuggestionsRepository;
+  /** Records that a pass ran, independently of what it wrote — see below. */
+  agentRuns: AgentRunsRepository;
   /** Read for category labels — the model is shown names, not bare uuids. */
   categories: CategoriesRepository;
   logger: SuggestLogger;
@@ -54,6 +57,14 @@ export async function refreshSuggestions(
 
   const existing = await deps.suggestions.list(userId, { asOfDate });
   if (existing.items.length > 0) return existing.items;
+
+  // The rows above are only half the guard. A pass whose proposals were all
+  // dropped — or that found nothing to advise — writes no rows, so it leaves
+  // nothing for the check above to short-circuit on and every retry that day
+  // buys another completion. The user likeliest to produce no suggestions is
+  // therefore the one who pays most. `agentRuns` records *that* a pass ran,
+  // independently of its output, which is the only thing that closes it.
+  if (await deps.agentRuns.hasRun(userId, "suggestions", asOfDate)) return [];
 
   // Neither read depends on the other, and the agent cannot start without both.
   const [ledger, profile] = await Promise.all([
@@ -101,7 +112,7 @@ export async function refreshSuggestions(
   // Written as one atomic set. The check above is only a fast path — two
   // refreshes racing past it would both land here, and the repository is what
   // decides which one's rows the user actually keeps.
-  return deps.suggestions.createDailySet(
+  const created = await deps.suggestions.createDailySet(
     userId,
     asOfDate,
     result.suggestions.map((suggestion) => ({
@@ -114,4 +125,23 @@ export async function refreshSuggestions(
       sourceRefs: suggestion.sourceRefs,
     })),
   );
+
+  // Recorded last: after the call *and* after the rows are durable.
+  //
+  // Written before `createDailySet`, a failed insert would mark the day done
+  // with nothing stored — the exact "user gets nothing until midnight" outcome
+  // recording-on-success exists to avoid. Written before the model call it would
+  // instead double as a mutex, forcing the loser of a race to be handed an empty
+  // list; but the day's set is already serialised on the user's row inside
+  // `createDailySet`, which hands the loser the winner's rows. Two racing
+  // refreshes are a rate limit's problem. What this row answers is the *next*
+  // attempt, hours later, which must not re-buy a pass that already ran and
+  // legitimately produced nothing.
+  //
+  // The boolean is deliberately ignored. `false` means a concurrent pass got
+  // there first, which is the same end state this call wanted — the day is on
+  // record either way, and there is nothing left for this caller to decide.
+  await deps.agentRuns.claim(userId, "suggestions", asOfDate);
+
+  return created;
 }

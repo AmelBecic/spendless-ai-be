@@ -41,13 +41,21 @@ export interface FixedExpensesRepository {
   /** `null` when the id does not exist **or** belongs to someone else. */
   findById(userId: string, id: string): Promise<FixedExpense | null>;
   create(userId: string, input: CreateFixedExpenseInput): Promise<FixedExpense>;
-  update(
-    userId: string,
-    id: string,
-    patch: UpdateFixedExpenseInput,
-  ): Promise<FixedExpense | null>;
+  update(userId: string, id: string, patch: UpdateFixedExpenseInput): Promise<FixedExpense | null>;
   /** Soft delete: flips `active` to false, keeping the row for historical stats. */
   deactivate(userId: string, id: string): Promise<FixedExpense | null>;
+  /**
+   * How many of this user's commitments were created or edited after `since`.
+   *
+   * Counted alongside new transactions when the scheduler decides whether a user
+   * is idle. A commitment is ledger input too — adding a subscription or
+   * cancelling one moves the very totals the narrative sits next to — so a user
+   * who spent nothing but restructured their standing costs is not idle.
+   *
+   * `updatedAt` covers creation as well (Prisma sets both on insert), and a
+   * deactivation is an edit, so a cancelled subscription counts.
+   */
+  countChangedSince(userId: string, since: Date): Promise<number>;
 }
 
 function toDomain(row: FixedExpenseRow): FixedExpense {
@@ -121,6 +129,12 @@ export function createFixedExpensesRepository(
         prisma.fixedExpense.update({ where: { id, userId }, data: { active: false } }),
       );
       return row ? toDomain(row) : null;
+    },
+
+    async countChangedSince(userId, since) {
+      // The `(userId)` index carries this: a person maintains tens of
+      // commitments, not thousands, so there is nothing here to seq-scan.
+      return prisma.fixedExpense.count({ where: { userId, updatedAt: { gt: since } } });
     },
   };
 }

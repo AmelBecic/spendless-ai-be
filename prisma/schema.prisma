@@ -32,6 +32,12 @@ enum SuggestionStatus {
   applied
 }
 
+/// Which agent a recorded pass belongs to.
+enum AgentRunKind {
+  profile
+  suggestions
+}
+
 /// Per-user settings, mirrored from Supabase auth.users (userId = auth.users.id).
 model UserProfile {
   userId             String   @id @db.Uuid
@@ -45,8 +51,34 @@ model UserProfile {
   transactions     Transaction[]
   profileSummaries ProfileSummary[]
   suggestions      Suggestion[]
+  agentRuns        AgentRun[]
 
   @@map("user_profiles")
+}
+
+/// Records THAT an agent pass ran for a user on a day, independently of whether
+/// it produced any output.
+///
+/// The suggestion loop's day-guard used to key on the rows it wrote, which never
+/// fires for a pass that legitimately produces nothing: the user with the
+/// emptiest ledger — the likeliest to yield no suggestions — was the one paying
+/// for a completion on every single retry. A row here is written whether the pass
+/// wrote ten suggestions or none, so "have we already run today?" stops being a
+/// question about output.
+model AgentRun {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  kind      AgentRunKind
+  asOfDate  DateTime     @db.Date
+  createdAt DateTime     @default(now())
+
+  user UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  /// One pass per user per kind per day — the guard reads this key directly, and
+  /// it is what makes a concurrent second pass a constraint violation rather than
+  /// a duplicate completion.
+  @@unique([userId, kind, asOfDate])
+  @@map("agent_runs")
 }
 
 model Category {
@@ -99,6 +131,12 @@ model Transaction {
   category Category    @relation(fields: [categoryId], references: [id])
 
   @@index([userId, occurredAt])
+  /// The scheduler's "has anything been entered since we last looked?" probe runs
+  /// once per user per run and filters on `createdAt`, which the `occurredAt`
+  /// index cannot serve — a backdated row sorts by when it happened, not by when
+  /// it was typed in. Without this the daily job seq-scans a user's whole history
+  /// to decide it has nothing to do.
+  @@index([userId, createdAt])
   @@index([categoryId])
   @@map("transactions")
 }

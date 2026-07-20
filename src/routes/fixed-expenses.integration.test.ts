@@ -5,18 +5,14 @@ import type { AuthDeps } from "../auth/plugin";
 import type { FixedExpense } from "../domain/types";
 import { createRepositories } from "../repositories";
 import { hasTestDatabase, testDb, resetDb, disconnectTestDb } from "../test/db";
-import { unusedLlm } from "../test/stubs";
+import { testEnv, unusedLlm } from "../test/stubs";
 
 // The endpoints against a real Postgres, with the real repositories behind them:
 // the route tests prove the handlers given a well-behaved store, this proves the
 // store is well-behaved — that the `userId` scoping actually reaches SQL, and
 // that a rejected body leaves no row behind.
 describe.skipIf(!hasTestDatabase)("fixed expenses endpoints (integration)", () => {
-  const testConfig: Env = {
-    NODE_ENV: "test",
-    PORT: 3000,
-    DATABASE_URL: process.env.TEST_DATABASE_URL!,
-  };
+  const testConfig: Env = testEnv({ DATABASE_URL: process.env.TEST_DATABASE_URL! });
 
   const userA = "00000000-0000-0000-0000-00000000000a";
   const userB = "00000000-0000-0000-0000-00000000000b";

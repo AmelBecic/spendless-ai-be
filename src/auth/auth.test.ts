@@ -10,11 +10,11 @@ import {
 } from "jose";
 import { buildApp } from "../app";
 import type { Env } from "../config/env";
-import { unusedLlm, unusedRepos } from "../test/stubs";
+import { testEnv, unusedLlm, unusedRepos } from "../test/stubs";
 import { createJwtAuthVerifier, supabaseAuthEndpoints, type AuthVerifier } from "./verifier";
 import type { ProfileStore } from "./profile-store";
 
-const testConfig: Env = { NODE_ENV: "test", PORT: 3000, DATABASE_URL: "postgres://test" };
+const testConfig: Env = testEnv();
 
 const AUDIENCE = "authenticated";
 const ISSUER = "https://proj.supabase.co/auth/v1";

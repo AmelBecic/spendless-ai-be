@@ -53,7 +53,12 @@ describe(".env.example", () => {
   it("carries no real values — the template ships placeholders only", () => {
     // Every documented key must be blank or an obviously-inert local default;
     // a populated secret here would be a committed credential.
-    const inert = /^(development|test|production|3000)$/;
+    //
+    // Bare numbers and booleans are inert by construction — a tuning knob like
+    // `REFRESH_RATE_LIMIT=10` cannot encode a credential, and blanking it would
+    // cost the reader the documented default for no security gain. Anything with
+    // structure to it (a url, a key, a dsn) still has to be blank.
+    const inert = /^(development|test|production|true|false|\d+)$/;
     const populated = documented.filter(({ value }) => value !== "" && !inert.test(value));
 
     expect(populated).toEqual([]);

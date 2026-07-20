@@ -43,6 +43,74 @@ The seams that matter:
 - **Money is integer cents + a 3-char currency**, never a float, and mixed-currency arithmetic
   throws rather than silently producing a wrong total.
 
+## Cost guardrails
+
+Every profile and suggestion refresh is a paid model call, so the app is built so that the *absence*
+of user activity costs nothing. Three independent guards:
+
+**1. Idle users are skipped.** The daily job measures each user against their last summary's
+`createdAt` — "has anything been entered since we last looked?" — counting both new transactions and
+changed commitments. A user who has done nothing buys no completion; the check is two indexed counts.
+A user who has never been summarised is measured from the epoch, so an empty account is idle too and
+a fresh signup list costs nothing to walk.
+
+**2. One pass per user per day, recorded independently of its output.** `agent_runs` records *that* a
+pass ran. A guard keyed on the rows a pass wrote can never fire for a pass that legitimately writes
+none — which makes the user with the least to advise on the one who pays on every retry.
+
+The same row is used with two meanings, on purpose. On the **suggestion** path it is a *receipt*,
+written after the rows are durable: that race is already serialised on the user's row inside
+`createDailySet` (which hands the loser the winner's rows), so what the receipt actually stops is the
+retry hours later. On the **scheduler's profile** half it is a *mutex*, taken before the work, because
+a cron firing twice must not buy the same user twice. Recording only on success keeps a transient
+failure to a retry rather than losing the user their day.
+
+The two halves are also gated **separately**. The profile half writes a summary, and idleness is
+measured from that summary — so a pass whose profile succeeded and whose suggestions failed would
+leave the user permanently "idle" and their suggestions never generated. The next pass resumes the
+unfinished half instead of skipping them.
+
+**3. A per-user rate limit on the paid routes.** `POST /profile/refresh` and `POST /suggestions/refresh`
+share one budget per user (they draw on the same model, so metering them separately would let a
+caller alternate and spend twice the ceiling). Exceeding it is a `429` in the standard error envelope
+with a `Retry-After` header, refused before the model is reached. The counter is in-process and
+per-instance — a deliberate trade, since a shared counter needs Redis and this sprint takes on no
+external infrastructure. It bounds "one user holding down a button", not a precise quota.
+
+Beyond those, every model call is bounded by the SDK's own timeout (2 min per attempt, 3 attempts),
+and each user's whole refresh is bounded again at the job level so one wedged user cannot stall the
+pass behind them.
+
+### The daily refresh job
+
+An in-process interval owned by the server process — no external scheduler, no queue. It is **off by
+default**, because it spends money in the background and running the app locally against a real key
+should not start it:
+
+```bash
+DAILY_REFRESH_ENABLED=true
+DAILY_REFRESH_INTERVAL_MINUTES=1440   # once a day
+```
+
+**A pass runs immediately on start**, not one interval later. The interval is anchored to process
+start, so with the 24-hour default the first tick would land a day after boot — and any platform that
+redeploys, restarts on crash, or sleeps idle instances more often than that resets the timer before it
+ever fires, refreshing nobody while logging that it started. The `agent_runs` record is what makes the
+eager pass cheap: a restart mid-day finds everyone already recorded and buys nothing.
+
+A pass never overlaps itself: if one run is still going when the next tick fires, the tick is
+dropped. One user's failure is logged and counted, and the walk continues — a job that aborted on the
+first bad user would leave everyone behind them stale and discard the completions already paid for.
+Each user is bounded by **one** wall-clock budget covering both agents and the reads between them; a
+timed-out user is marked done for the day, because `withTimeout` abandons work without cancelling it
+and a retry would buy a second completion while the first is still in flight.
+Users are walked **sequentially and deliberately**: the cached prompt prefix has a five-minute TTL,
+so back-to-back calls read the prefix from cache instead of rewriting it at ~1.25× input price. The
+prefix is a per-agent constant carrying no user data, which is what makes it reusable across users.
+
+`runDailyRefresh` is exported separately from the interval that drives it, so the same pass can be
+triggered by an external cron later without changing the job. Deploy wiring is Sprint 4.
+
 ## Running locally
 
 **Prerequisites:** Node ≥ 24 and a Postgres database (Supabase, or any local instance).
