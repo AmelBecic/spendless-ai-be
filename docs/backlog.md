@@ -181,8 +181,7 @@ Tickets (dependency order — full AC lives on the Jira issues):
 
 # Sprint 3 — Web client (`spendless-ai-web`)
 
-Epic: **[SLAI-22]** *(number to confirm at creation — SLAI-21 is the Serena chore; see the Sprint 2
-note above for how this bit us once already)*. Goal: a Next.js client that logs spend, shows the
+Epic: **[SLAI-22]**, tickets **SLAI-23 → 28**, created with full AC in Jira. Goal: a Next.js client that logs spend, shows the
 profile, and — the point of the whole project — renders each suggestion **next to the stat it rests
 on**. Two repos: the CORS ticket lands in this one, the rest in `spendless-ai-web` (label `frontend`).
 
