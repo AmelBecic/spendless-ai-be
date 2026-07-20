@@ -179,9 +179,103 @@ Tickets (dependency order — full AC lives on the Jira issues):
 
 ---
 
+# Sprint 3 — Web client (`spendless-ai-web`)
+
+Epic: **[SLAI-22]** *(number to confirm at creation — SLAI-21 is the Serena chore; see the Sprint 2
+note above for how this bit us once already)*. Goal: a Next.js client that logs spend, shows the
+profile, and — the point of the whole project — renders each suggestion **next to the stat it rests
+on**. Two repos: the CORS ticket lands in this one, the rest in `spendless-ai-web` (label `frontend`).
+
+**Standing caveat.** Every agent path is stub-proven only — no `ANTHROPIC_API_KEY` has ever been
+used against the live API, so the structured-output and prompt-caching contracts are unverified.
+The web repo's README must say so; a demo that breaks will break there first.
+
+**Type sharing: hand-copied, deliberately.** The web repo does *not* install the backend as a
+dependency — the backend's `postinstall` runs `prisma generate`, which would pull Prisma and the
+whole backend dep tree into a frontend install. The accepted cost is silent drift, mitigated by
+keeping every copied type in one file with the source SHA recorded (SLAI-24).
+
+## Backend prerequisite
+
+### SLAI-23 · CORS for the web client
+**Type:** Task · **Labels:** backend, api
+No CORS exists anywhere in the API today, so a browser client fails preflight on every request.
+Blocks the whole sprint.
+**Acceptance criteria:**
+- `@fastify/cors` registered in `src/app.ts`; allowed origins read from the typed env schema (not
+  hardcoded), documented in `.env.example` in the **same commit** so the parity test stays green.
+- A single origin list drives it; `*` is not used when credentials are enabled.
+- Preflight (`OPTIONS`) on an authenticated route returns the right `Access-Control-Allow-*` headers
+  without invoking the auth preHandler.
+- Rejected origins get no CORS headers — asserted in a test, both accepted and rejected paths.
+- Gates green; no `any`.
+
+## Web client
+
+### SLAI-24 · Repo scaffold, house rules & the copied contract
+**Type:** Task · **Labels:** frontend, foundation
+The workflow discipline is half of what this project demonstrates — a frontend repo without it
+undercuts the backend one.
+**Acceptance criteria:**
+- Next.js + TS (ESM, strict), `npm run lint` · `typecheck` · `test` all wired and passing empty.
+- `.githooks` ported: gitleaks pre-commit, commit-msg hook rejecting AI/co-author trailers.
+- CI workflow mirroring the backend's gates + the `SLAI-` PR-title check.
+- `docs/engineering-checklist.md` ported, plus a line: *re-diff the copied contract when backend
+  response types change.*
+- `src/api/contract.ts` holds **every** copied wire type (`CategoriesResponse`, `StatsResponse`,
+  `ProfileResponse`, `SuggestionsResponse`, `TransactionsResponse`, `FixedExpensesResponse` and
+  their members), with a header comment naming the backend source files and the **commit SHA** they
+  were copied from. No wire type is declared anywhere else in the repo.
+
+### SLAI-25 · Supabase Auth + authenticated API client
+**Type:** Story · **Labels:** frontend, auth · **Depends on:** SLAI-23, SLAI-24
+Everything else depends on this seam.
+**Acceptance criteria:**
+- Login + signup against Supabase Auth; session persisted, protected routes redirect when absent.
+- One `src/api/client.ts` attaches the Supabase access token to every request — **no `fetch` in any
+  component**.
+- A 401 clears the session and redirects to login; token refresh handled in the client, not per-call.
+- Responses typed from `contract.ts`; the error envelope `{ error: { code, message } }` is parsed to
+  a typed error, and a 429 from the LLM routes surfaces `Retry-After` as a real message.
+- Tested with a stubbed transport — no live Supabase or backend call in tests.
+
+### SLAI-26 · Log daily spend & fixed expenses
+**Type:** Story · **Labels:** frontend, api · **Depends on:** SLAI-25
+**Acceptance criteria:**
+- Forms over `POST /transactions` and `POST /fixed-expenses`; list, edit, delete/deactivate.
+- **Money stays integer cents** in state and on the wire — the currency input parses to cents once,
+  and formatting happens only at render. No `parseFloat` on an amount reaches state or the API.
+- Category select fed by `GET /categories`; field-level 400s render against the offending field.
+- Unit-tested incl. the cents-parsing edge cases (`"12.5"`, `"12.345"`, `","` decimal separators).
+
+### SLAI-27 · Dashboard — stats + profile narrative
+**Type:** Story · **Labels:** frontend, api · **Depends on:** SLAI-25
+**Acceptance criteria:**
+- `GET /stats` and `GET /profile` render: totals, per-category shares, top categories,
+  recurring-vs-discretionary split, month-over-month delta, and the narrative summary.
+- Period selector drives `from`/`to`; empty ledger renders an explicit empty state, not zeros.
+- `POST /profile/refresh` triggerable, with pending state and the 429 path handled.
+- Every figure displayed comes from the API — **the client performs no money arithmetic.**
+
+### SLAI-28 · Suggestions feed (the grounded view)
+**Type:** Story · **Labels:** frontend, agent · **Depends on:** SLAI-27
+The screen that makes this a grounded agent rather than a chatbot with a database. Worth more
+polish than the rest of the sprint combined.
+**Acceptance criteria:**
+- `GET /suggestions` renders each suggestion **with its citation visible** — the stat/category it
+  rests on shown alongside the claim, not hidden behind a tooltip.
+- `estMonthlySavingsCents` displayed as formatted money, taken verbatim from the API.
+- Dismiss / apply via `PATCH /suggestions/:id`, with optimistic update and rollback on failure.
+- `POST /suggestions/refresh` wired, sharing SLAI-25's 429 handling.
+- A suggestion whose citation cannot be resolved renders as degraded — visibly missing its
+  grounding — rather than rendering as if it were grounded.
+
+---
+
 # Later sprints (out of scope for now, tracked so the shape is clear)
-- **Sprint 3 — Web client** (`spendless-ai-web`, Next.js, component `frontend`): login, log expense /
-  daily spend, dashboard (stats + profile narrative), suggestions feed.
-- **Sprint 4 — Deploy + writeup**: Docker → Fly/Railway/Render + managed Postgres, live URLs, README
-  with eval numbers and the "API key vs subscription CLI" tradeoff; flip public as an outreach hook.
+- **Sprint 4 — Deploy + writeup**: production build (today `npm start` is `tsx` over source and
+  `build` is `tsc --noEmit`, emitting nothing) → Dockerfile → Fly/Railway/Render + managed Postgres,
+  live URLs, **first live model run + `npm run eval -- --live` baseline**, scheduler wiring the
+  in-process job deferred from SLAI-19 (its rate limiter is per-instance — that stops being a
+  footnote above one instance), README with real eval numbers as an outreach hook.
 - **Later — Mobile** (Expo) on the same API.
