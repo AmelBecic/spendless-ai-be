@@ -179,11 +179,11 @@ Tickets (dependency order — full AC lives on the Jira issues):
 
 ---
 
-# Sprint 3 — Web client (`spendless-ai-web`)
+# Sprint 3 — Web client (`spendless-ai-fe`)
 
 Epic: **[SLAI-22]**, tickets **SLAI-23 → 28**, created with full AC in Jira. Goal: a Next.js client that logs spend, shows the
 profile, and — the point of the whole project — renders each suggestion **next to the stat it rests
-on**. Two repos: the CORS ticket lands in this one, the rest in `spendless-ai-web` (label `frontend`).
+on**. Two repos: the CORS ticket lands in this one, the rest in `spendless-ai-fe` (label `frontend`).
 
 **Standing caveat.** Every agent path is stub-proven only — no `ANTHROPIC_API_KEY` has ever been
 used against the live API, so the structured-output and prompt-caching contracts are unverified.
