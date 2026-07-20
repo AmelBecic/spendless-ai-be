@@ -28,6 +28,9 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
     REFRESH_RATE_LIMIT_WINDOW_SEC: 3600,
     DAILY_REFRESH_ENABLED: false,
     DAILY_REFRESH_INTERVAL_MINUTES: 1440,
+    // No browser origin is trusted unless a suite says so — matching the
+    // production default, and keeping CORS off the path of every other suite.
+    CORS_ALLOWED_ORIGINS: [],
     ...overrides,
   };
 }
