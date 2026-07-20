@@ -14,12 +14,25 @@ export type AgentRunKind = "profile" | "suggestions";
 
 export interface AgentRunsRepository {
   /**
-   * Claim today's pass for a user, returning `true` when the caller won it.
+   * Write the row for today's pass, returning `true` when this caller wrote it
+   * and `false` when it was already there.
    *
-   * A claim, not a log: the write happens *before* the model call, and the
-   * unique key is what decides which of two concurrent passes actually pays for
-   * a completion. The loser gets `false` and returns whatever is already stored,
-   * so a race costs one completion rather than two.
+   * **The same primitive is used with two different meanings, deliberately, and
+   * a reader needs to know which one a call site means:**
+   *
+   * - *Before* the work, it is a **mutex** — the unique key decides which of two
+   *   concurrent passes pays for the completion, and the loser backs off. The
+   *   scheduler's profile half uses it this way, because a cron firing twice (or
+   *   a tick overlapping its predecessor) must not buy the same user twice.
+   * - *After* the work, it is a **receipt** — a record that a pass happened,
+   *   whatever it produced. `refreshSuggestions` uses it this way, because its
+   *   race is already serialised on the user's row inside `createDailySet`, and
+   *   what it actually needs to stop is the *retry hours later* re-buying a pass
+   *   that legitimately wrote no rows.
+   *
+   * The distinction matters because a pre-claim forces the loser of a race to be
+   * handed an empty result, which would contradict the "loser gets the winner's
+   * rows" contract the suggestion path already guarantees.
    */
   claim(userId: string, kind: AgentRunKind, asOfDate: Date): Promise<boolean>;
   /**

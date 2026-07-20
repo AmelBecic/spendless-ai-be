@@ -175,7 +175,22 @@ first. This list grows every time the reviewer catches something that could have
       contract established elsewhere. If the write is already serialised (a row lock), the receipt is
       what you want — the marker's job is the *retry hours later*, not the race. And record only on
       success, or one transient failure marks the day done and the user gets nothing until midnight.
-      (SLAI-19: shipped as a pre-claim, caught by SLAI-18's existing race test.)
+      Using **both** meanings in one codebase is fine, but say so where the primitive is defined —
+      otherwise the two call sites read as one of them being a bug. (SLAI-19: shipped as a pre-claim,
+      caught by SLAI-18's existing race test; the mixed semantics were then flagged by the reviewer.)
+- [ ] **A receipt goes after the durable write, not after the expensive call.** Recorded between the
+      model call and the insert, a failed insert marks the day done with nothing stored — which is
+      the precise outcome recording-on-success was supposed to prevent. (SLAI-19.)
+- [ ] **A multi-step pass must gate its steps separately when step 1 changes step 2's precondition.**
+      Step 1 writing a row that the "should we run at all?" check reads means a pass that half-fails
+      makes the subject look *up to date* forever, and step 2 never runs again. Ask what the skip
+      predicate reads, and whether an earlier step writes it. (SLAI-19: the profile half writes the
+      summary that `isIdle` measures novelty from, so a suggestion-half failure stranded the user
+      permanently — found by the reviewer, not by the tests, which only exercised whole-pass failure.)
+- [ ] **An abandoned operation is not a cancelled one.** `Promise.race` against a timer leaves the
+      loser running. Releasing a claim/lock on timeout therefore lets a *second* worker start while
+      the first is still in flight and may still write — so on timeout specifically, hold the claim.
+      Distinguish timeout from ordinary failure in the catch. (SLAI-19.)
 
 ## Config & fixtures
 

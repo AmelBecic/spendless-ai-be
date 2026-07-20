@@ -100,20 +100,6 @@ export async function refreshSuggestions(
     categoryLabels,
   });
 
-  // Recorded *after* the call, not before it, and deliberately so.
-  //
-  // As a pre-claim this would double as a mutex, and the loser of a race would
-  // have to be handed an empty list — but the day's set is already serialised on
-  // the user's row inside `createDailySet`, which hands the loser the winner's
-  // rows instead. Two racing refreshes are a rate limit's problem; what this row
-  // exists for is the *next* attempt, hours later, which must not re-buy a pass
-  // that already ran and legitimately produced nothing.
-  //
-  // Recording only on success is the other half: a pass that threw never happened
-  // as far as this table is concerned, so a transient failure costs a retry
-  // rather than the user's whole day.
-  await deps.agentRuns.claim(userId, "suggestions", asOfDate);
-
   // Surfaced, not swallowed: a model that has started citing targets it was
   // never shown is a prompt regression whose only other symptom is a short list.
   if (result.dropped.length > 0) {
@@ -126,7 +112,7 @@ export async function refreshSuggestions(
   // Written as one atomic set. The check above is only a fast path — two
   // refreshes racing past it would both land here, and the repository is what
   // decides which one's rows the user actually keeps.
-  return deps.suggestions.createDailySet(
+  const created = await deps.suggestions.createDailySet(
     userId,
     asOfDate,
     result.suggestions.map((suggestion) => ({
@@ -139,4 +125,23 @@ export async function refreshSuggestions(
       sourceRefs: suggestion.sourceRefs,
     })),
   );
+
+  // Recorded last: after the call *and* after the rows are durable.
+  //
+  // Written before `createDailySet`, a failed insert would mark the day done
+  // with nothing stored — the exact "user gets nothing until midnight" outcome
+  // recording-on-success exists to avoid. Written before the model call it would
+  // instead double as a mutex, forcing the loser of a race to be handed an empty
+  // list; but the day's set is already serialised on the user's row inside
+  // `createDailySet`, which hands the loser the winner's rows. Two racing
+  // refreshes are a rate limit's problem. What this row answers is the *next*
+  // attempt, hours later, which must not re-buy a pass that already ran and
+  // legitimately produced nothing.
+  //
+  // The boolean is deliberately ignored. `false` means a concurrent pass got
+  // there first, which is the same end state this call wanted — the day is on
+  // record either way, and there is nothing left for this caller to decide.
+  await deps.agentRuns.claim(userId, "suggestions", asOfDate);
+
+  return created;
 }

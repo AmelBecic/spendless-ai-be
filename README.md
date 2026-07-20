@@ -56,8 +56,19 @@ a fresh signup list costs nothing to walk.
 
 **2. One pass per user per day, recorded independently of its output.** `agent_runs` records *that* a
 pass ran. A guard keyed on the rows a pass wrote can never fire for a pass that legitimately writes
-none — which makes the user with the least to advise on the one who pays on every retry. Recording
-only on success keeps a transient failure to a retry rather than losing the user their day.
+none — which makes the user with the least to advise on the one who pays on every retry.
+
+The same row is used with two meanings, on purpose. On the **suggestion** path it is a *receipt*,
+written after the rows are durable: that race is already serialised on the user's row inside
+`createDailySet` (which hands the loser the winner's rows), so what the receipt actually stops is the
+retry hours later. On the **scheduler's profile** half it is a *mutex*, taken before the work, because
+a cron firing twice must not buy the same user twice. Recording only on success keeps a transient
+failure to a retry rather than losing the user their day.
+
+The two halves are also gated **separately**. The profile half writes a summary, and idleness is
+measured from that summary — so a pass whose profile succeeded and whose suggestions failed would
+leave the user permanently "idle" and their suggestions never generated. The next pass resumes the
+unfinished half instead of skipping them.
 
 **3. A per-user rate limit on the paid routes.** `POST /profile/refresh` and `POST /suggestions/refresh`
 share one budget per user (they draw on the same model, so metering them separately would let a

@@ -16,7 +16,7 @@ import type { AgentRunsRepository } from "../repositories/agent-runs";
 import type { ProfilesRepository } from "../repositories/profiles";
 import { profilePeriod, refreshProfile } from "./profile-refresh";
 import { refreshSuggestions, type SuggestRefreshDeps } from "./suggest-refresh";
-import { withTimeout } from "./timeout";
+import { TimeoutError, withTimeout } from "./timeout";
 
 /** The scheduler logs at three levels; the suggestion path only needs `warn`. */
 export interface SchedulerLogger {
@@ -91,7 +91,14 @@ async function isIdle(
  * Refresh one user, or skip them. Returns whether a refresh actually ran.
  *
  * The idle check happens before anything paid: the only cost of an idle user is
- * the summary read and two counts, all of which are indexed.
+ * the two run lookups, the summary read and two counts, all of which are indexed.
+ *
+ * The two halves are gated separately, which matters more than it looks. The
+ * profile half writes a summary; `isIdle` then measures novelty from that
+ * summary's `createdAt`. So a pass whose profile half succeeded and whose
+ * suggestion half did not leaves the user looking *idle* on every subsequent
+ * pass — freshly summarised, nothing recorded since — and their suggestions are
+ * never generated at all. Resuming the unfinished half is what closes that.
  */
 async function refreshUser(
   deps: DailyRefreshDeps,
@@ -99,39 +106,64 @@ async function refreshUser(
   now: Date,
   timeoutMs: number,
 ): Promise<boolean> {
-  const previous = await deps.summaries.latest(userId);
-  if (await isIdle(deps, userId, previous)) return false;
-
   const period = profilePeriod(now);
   const asOfDate = new Date(`${period.end}T00:00:00.000Z`);
 
-  // Claimed before the work, so a cron that fires twice — or overlaps its own
-  // previous run — pays once. The suggestion half claims its own kind inside
-  // `refreshSuggestions`, so the on-demand route is covered by the same guard.
-  const claimed = await deps.agentRuns.claim(userId, "profile", asOfDate);
-  if (!claimed) {
-    deps.logger.info({ userId, asOfDate: period.end }, "profile pass already ran today");
-    return false;
+  const [profileDone, suggestionsDone] = await Promise.all([
+    deps.agentRuns.hasRun(userId, "profile", asOfDate),
+    deps.agentRuns.hasRun(userId, "suggestions", asOfDate),
+  ]);
+
+  // Today's profile landed but its suggestion half did not: the user is idle by
+  // construction, and skipping them here is exactly the trap described above.
+  const resuming = profileDone && !suggestionsDone;
+
+  if (!resuming) {
+    const previous = await deps.summaries.latest(userId);
+    if (await isIdle(deps, userId, previous)) return false;
   }
 
-  try {
-    await withTimeout(refreshProfile(deps, userId, now), timeoutMs, `profile refresh ${userId}`);
-  } catch (err) {
-    // Released so a transient failure does not cost the user their whole day —
-    // without this, one 503 would leave the claim standing and every retry until
-    // midnight would skip them.
-    await deps.agentRuns.release(userId, "profile", asOfDate);
-    throw err;
+  if (!profileDone) {
+    // Claimed before the work, not after — deliberately the opposite of the
+    // suggestion receipt, and for a different job. Here the marker is the
+    // scheduler's own mutex: a cron that fires twice, or a tick that overlaps
+    // its predecessor, must not buy the same user's profile twice. The
+    // suggestion receipt answers a different question (did a pass already run
+    // hours ago?) and so is written after success. See `agent-runs.ts`.
+    if (!(await deps.agentRuns.claim(userId, "profile", asOfDate))) {
+      deps.logger.info({ userId, asOfDate: period.end }, "profile pass already claimed");
+      return false;
+    }
+
+    try {
+      await withTimeout(refreshProfile(deps, userId, now), timeoutMs, `profile refresh ${userId}`);
+    } catch (err) {
+      // Released so a transient failure does not cost the user their whole day —
+      // without this, one 503 would leave the claim standing and every retry
+      // until midnight would skip them.
+      //
+      // Except on a timeout. `withTimeout` abandons the operation, it cannot
+      // cancel it, so the refresh may still be in flight and may still write its
+      // summary. Releasing the claim there would let a later tick buy a second
+      // completion for a user who is already being served, and race the two
+      // upserts against each other. A timed-out user waits for tomorrow.
+      if (!(err instanceof TimeoutError)) {
+        await deps.agentRuns.release(userId, "profile", asOfDate);
+      }
+      throw err;
+    }
   }
 
   // Sequential, and deliberately after the profile: the suggestion agent reads
-  // the summary the profile pass just wrote, so running them concurrently would
+  // the summary the profile pass writes, so running them concurrently would
   // advise against a stale narrative.
-  await withTimeout(
-    refreshSuggestions({ ...deps, logger: deps.logger }, userId, now),
-    timeoutMs,
-    `suggestion refresh ${userId}`,
-  );
+  if (!suggestionsDone) {
+    await withTimeout(
+      refreshSuggestions({ ...deps, logger: deps.logger }, userId, now),
+      timeoutMs,
+      `suggestion refresh ${userId}`,
+    );
+  }
   return true;
 }
 

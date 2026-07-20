@@ -51,8 +51,12 @@ interface WorldOptions {
   expenseChanges?: Record<string, number>;
   /** Per user: make the model call fail. */
   failFor?: Set<string>;
+  /** Per user: fail only the *suggestion* call, leaving the profile half to land. */
+  failSuggestionsFor?: Set<string>;
   /** Per user: make the model call hang forever. */
   hangFor?: Set<string>;
+  /** Per user: let the model succeed but fail the write that persists its output. */
+  failPersistFor?: Set<string>;
   pageSize?: number;
 }
 
@@ -62,6 +66,10 @@ interface World {
   calls: LlmRequest<unknown>[];
   releases: { userId: string; kind: AgentRunKind }[];
   errors: Record<string, unknown>[];
+  /** Mutable, so a test can let a previously-failing half succeed on a later pass. */
+  failSuggestions: Set<string>;
+  /** The recorded passes, as `userId:kind` — the receipts, observable. */
+  runs: Set<string>;
 }
 
 /**
@@ -74,6 +82,7 @@ function world(options: WorldOptions): World {
   const releases: { userId: string; kind: AgentRunKind }[] = [];
   const errors: Record<string, unknown>[] = [];
   const held = new Set<string>();
+  const failSuggestions = new Set(options.failSuggestionsFor ?? []);
 
   const pageSize = options.pageSize ?? 50;
   const profiles: ProfilesRepository = {
@@ -148,7 +157,10 @@ function world(options: WorldOptions): World {
     },
     findById: rejects("findById"),
     create: rejects("create"),
-    async createDailySet() {
+    async createDailySet(userId) {
+      if (options.failPersistFor?.has(userId)) {
+        throw new Error(`persisting the set failed for ${userId}`);
+      }
       return [];
     },
     setStatus: rejects("setStatus"),
@@ -181,6 +193,9 @@ function world(options: WorldOptions): World {
       if (userId && options.hangFor?.has(userId)) return new Promise<never>(() => {});
       if (userId && options.failFor?.has(userId)) {
         return Promise.reject(new Error(`model exploded for ${userId}`));
+      }
+      if (userId && request.schemaName === "savings_suggestions" && failSuggestions.has(userId)) {
+        return Promise.reject(new Error(`suggestion half exploded for ${userId}`));
       }
       const data =
         request.schemaName === "profile_summary"
@@ -228,7 +243,7 @@ function world(options: WorldOptions): World {
     },
   };
 
-  return { deps, calls, releases, errors };
+  return { deps, calls, releases, errors, failSuggestions, runs: held };
 }
 
 describe("runDailyRefresh", () => {
@@ -350,6 +365,68 @@ describe("runDailyRefresh", () => {
     await runDailyRefresh(deps, NOW);
 
     expect(calls.length).toBe(afterFirst);
+  });
+
+  it("resumes the suggestion half after it fails, instead of stranding the user", async () => {
+    // The trap: the profile half writes a summary, and `isIdle` measures novelty
+    // from that summary. So a pass whose profile succeeded and whose suggestions
+    // failed leaves the user looking freshly-summarised-and-idle on every later
+    // pass — and their suggestions are never generated again, silently, until
+    // they happen to spend something.
+    const w = world({
+      users: ["half-done"],
+      transactions: { "half-done": [transaction("half-done", "2026-07-20T09:00:00.000Z")] },
+      failSuggestionsFor: new Set(["half-done"]),
+    });
+
+    const first = await runDailyRefresh(w.deps, NOW);
+    expect(first).toMatchObject({ refreshed: 0, failed: 1 });
+    // The profile summary landed, so the user is now "idle" by construction.
+    expect(w.calls.map((c) => c.schemaName)).toEqual(["profile_summary", "savings_suggestions"]);
+
+    // Second pass, same day, nothing new recorded. The user must still be picked
+    // up — and only the unfinished half re-run.
+    w.failSuggestions.clear();
+    const second = await runDailyRefresh(w.deps, NOW);
+
+    expect(second).toMatchObject({ scanned: 1, refreshed: 1, skipped: 0, failed: 0 });
+    expect(w.calls.map((c) => c.schemaName)).toEqual([
+      "profile_summary",
+      "savings_suggestions",
+      // The profile half is not re-bought — it already succeeded today.
+      "savings_suggestions",
+    ]);
+  });
+
+  it("does not record the day when persisting the suggestion set fails", async () => {
+    // The receipt goes after the durable write, not after the model call.
+    // Recorded in between, a failed insert marks the day done with nothing
+    // stored — precisely the outcome recording-on-success exists to prevent.
+    const w = world({
+      users: ["unlucky"],
+      transactions: { unlucky: [transaction("unlucky", "2026-07-20T09:00:00.000Z")] },
+      expenseChanges: { unlucky: 1 },
+      failPersistFor: new Set(["unlucky"]),
+    });
+
+    await runDailyRefresh(w.deps, NOW);
+
+    expect(w.runs.has("unlucky:suggestions")).toBe(false);
+  });
+
+  it("holds the claim when a profile refresh times out", async () => {
+    // `withTimeout` abandons the operation, it cannot cancel it — so the refresh
+    // may still be in flight and may still write. Releasing the claim would let a
+    // later tick buy a second completion for a user already being served.
+    const { deps, releases } = world({
+      users: ["hung"],
+      transactions: { hung: [transaction("hung", "2026-07-20T09:00:00.000Z")] },
+      hangFor: new Set(["hung"]),
+    });
+
+    await runDailyRefresh(deps, NOW, { perUserTimeoutMs: 20 });
+
+    expect(releases).toEqual([]);
   });
 
   it("bounds a hung model call instead of stalling the whole pass", async () => {
