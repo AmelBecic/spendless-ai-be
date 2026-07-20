@@ -12,6 +12,17 @@ import type { FastifyInstance } from "fastify";
 const PREFLIGHT_MAX_AGE_SEC = 86_400;
 
 /**
+ * The methods a preflight is told the API accepts.
+ *
+ * Hand-maintained but not free to drift: `cors.test.ts` walks the real route
+ * table and fails if anything routed is missing here — a method absent from this
+ * list makes the browser block the request with nothing failing server-side.
+ * `HEAD` earns its place because Fastify registers one for every `GET`, and no
+ * `PUT` appears because updates in this API are `PATCH`.
+ */
+export const CORS_ALLOWED_METHODS = ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"];
+
+/**
  * Register CORS against an exact-match allow-list.
  *
  * `origin` is a function rather than the array form on purpose. Given an array,
@@ -40,7 +51,7 @@ export function registerCors(app: FastifyInstance, allowedOrigins: readonly stri
     // Exact origins only (enforced by the env schema), so credentialed requests
     // are safe to allow: this is what lets the client send its Supabase session.
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: CORS_ALLOWED_METHODS,
     allowedHeaders: ["Authorization", "Content-Type"],
     // The rate-limit headers on the refresh routes are useless to the client if
     // the browser hides them.

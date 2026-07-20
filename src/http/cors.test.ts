@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { buildApp } from "../app";
+import { CORS_ALLOWED_METHODS } from "./cors";
 import { EnvSchema } from "../config/env";
 import { testEnv, unusedLlm, unusedRepos } from "../test/stubs";
 
@@ -141,6 +142,49 @@ describe("CORS", () => {
       const res = await app.inject({ method: "GET", url: "/health", headers: { origin } });
       expect(res.headers["access-control-allow-origin"]).toBe(origin);
     }
+
+    await app.close();
+  });
+});
+
+describe("CORS_ALLOWED_METHODS", () => {
+  // The allow-list is written by hand and the router is not consulted, so the
+  // two drift the moment a route is added with a method nobody thought about.
+  // That failure is invisible server-side — the request is simply never sent by
+  // the browser — so it has to be caught here.
+  it("covers every method the router actually serves", async () => {
+    const { app } = appWithCors([ALLOWED]);
+    await app.ready();
+
+    // `printRoutes` is the only public view of the assembled table. Each line
+    // carries its methods in parentheses: `/transactions (GET, HEAD, POST)`.
+    const routed = new Set(
+      [...app.printRoutes({ commonPrefix: false }).matchAll(/\(([A-Z, ]+)\)/g)].flatMap((match) =>
+        (match[1] ?? "").split(",").map((method) => method.trim()),
+      ),
+    );
+
+    // Guards the parse itself: a regex that silently matched nothing would make
+    // the assertion below vacuously true.
+    expect(routed.size).toBeGreaterThan(3);
+    expect([...routed].filter((method) => !CORS_ALLOWED_METHODS.includes(method))).toEqual([]);
+
+    await app.close();
+  });
+
+  it("advertises those methods on a preflight", async () => {
+    const { app } = appWithCors([ALLOWED]);
+
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/transactions",
+      headers: { origin: ALLOWED, "access-control-request-method": "HEAD" },
+    });
+
+    const advertised = String(res.headers["access-control-allow-methods"])
+      .split(",")
+      .map((method) => method.trim());
+    expect(advertised).toEqual(CORS_ALLOWED_METHODS);
 
     await app.close();
   });
