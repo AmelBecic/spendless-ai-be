@@ -52,6 +52,13 @@ export function registerCors(app: FastifyInstance, allowedOrigins: readonly stri
     // are safe to allow: this is what lets the client send its Supabase session.
     credentials: true,
     methods: CORS_ALLOWED_METHODS,
+    // The complete set the client ever sends: a bearer token and a JSON body.
+    // Unlike `methods` this cannot be derived from the router — request headers
+    // are the caller's choice, not the route's — so it is a standing invariant:
+    // anything the client starts sending (a trace or idempotency header) must be
+    // added here or its preflight fails in the browser with nothing failing
+    // server-side. Deliberately not reflecting `Access-Control-Request-Headers`,
+    // which would accept whatever a caller asks for.
     allowedHeaders: ["Authorization", "Content-Type"],
     // The rate-limit headers on the refresh routes are useless to the client if
     // the browser hides them.

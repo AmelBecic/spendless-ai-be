@@ -123,6 +123,23 @@ describe("CORS", () => {
     await app.close();
   });
 
+  // `Vary: Origin` is what stops a shared cache keyed on URL alone from storing
+  // one origin's CORS headers and replaying them to another. The plugin emits it
+  // before it resolves the allow-list — so it survives the `false` no-op path —
+  // but nothing here depended on that until now, and losing it would be a cache
+  // poisoning bug invisible to every other assertion in this file.
+  it.each([
+    ["an allowed origin", ALLOWED],
+    ["a rejected origin", REJECTED],
+  ])("varies on Origin for %s", async (_label, origin) => {
+    const { app } = appWithCors([ALLOWED]);
+
+    const res = await app.inject({ method: "GET", url: "/health", headers: { origin } });
+    expect(String(res.headers.vary)).toContain("Origin");
+
+    await app.close();
+  });
+
   it("leaves a request with no Origin header untouched", async () => {
     const { app } = appWithCors([ALLOWED]);
 
@@ -164,9 +181,15 @@ describe("CORS_ALLOWED_METHODS", () => {
       ),
     );
 
-    // Guards the parse itself: a regex that silently matched nothing would make
-    // the assertion below vacuously true.
-    expect(routed.size).toBeGreaterThan(3);
+    // Guards the parse itself, and a table that came back short: a regex that
+    // matched nothing — or an app that registered only some of its routes —
+    // would make the assertion below vacuously true. No route registration in
+    // `buildApp` is conditional today, so every method below is always present.
+    // A floor rather than an exact set: adding a method to the API should fail
+    // the drift assertion below, not this one.
+    for (const method of ["GET", "HEAD", "POST", "PATCH", "DELETE"]) {
+      expect([...routed]).toContain(method);
+    }
     expect([...routed].filter((method) => !CORS_ALLOWED_METHODS.includes(method))).toEqual([]);
 
     await app.close();
