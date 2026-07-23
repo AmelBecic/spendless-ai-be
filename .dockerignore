@@ -1,0 +1,26 @@
+# Build artifacts & deps — regenerated inside the image.
+node_modules
+dist
+
+# Secrets & local env — never bake into an image.
+.env
+.env.*
+!.env.example
+
+# VCS & CI — not needed at build time.
+.git
+.github
+.githooks
+
+# Tests, evals, docs — not part of the runtime bundle.
+evals
+coverage
+docs
+*.md
+
+# OS / editor / tooling noise.
+.DS_Store
+*.log
+.vscode
+.idea
+.claude
