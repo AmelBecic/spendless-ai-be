@@ -7,6 +7,8 @@ import type { Env } from "./config/env";
 import { AppError, type ErrorBody } from "./http/errors";
 import { registerAuth, type AuthDeps } from "./auth/plugin";
 import { registerHealthRoute } from "./routes/health";
+import { registerCapabilitiesRoute } from "./routes/capabilities";
+import { registerAiDisabledRoutes } from "./routes/ai-disabled";
 import { registerCategoriesRoute } from "./routes/categories";
 import { registerFixedExpensesRoutes } from "./routes/fixed-expenses";
 import { registerTransactionsRoutes } from "./routes/transactions";
@@ -28,8 +30,11 @@ export interface AppDeps {
   config: Env;
   db: { ping: () => Promise<void> };
   auth: AuthDeps;
-  /** The model seam the agent routes run on — an interface, never the SDK. */
-  llm: LlmClient;
+  /** The model seam the agent routes run on — an interface, never the SDK.
+   *  Optional: absent when no ANTHROPIC_API_KEY is configured, which puts the API
+   *  into no-AI mode — the money features run as normal, and the agent routes
+   *  answer AI_DISABLED while /capabilities reports `{ ai: false }`. */
+  llm?: LlmClient;
   /** The data-access seam routes read through. Narrowed to what the registered routes need. */
   repos: {
     categories: CategoriesRepository;
@@ -117,36 +122,46 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     expenses: deps.repos.expenses,
     profiles: deps.repos.profiles,
   });
-  // One budget spanning both refresh routes, deliberately: they draw on the same
-  // paid model, so a per-route limit would let a caller alternate between them
-  // and spend twice the intended ceiling.
-  const refreshLimiter = createRateLimiter({
-    limit: deps.config.REFRESH_RATE_LIMIT,
-    windowMs: deps.config.REFRESH_RATE_LIMIT_WINDOW_SEC * 1000,
-  });
-  const refreshRateLimit = rateLimitByUser(refreshLimiter, "refresh");
 
-  registerProfileRoutes(app, {
-    llm: deps.llm,
-    transactions: deps.repos.transactions,
-    expenses: deps.repos.expenses,
-    profiles: deps.repos.profiles,
-    summaries: deps.repos.summaries,
-    categories: deps.repos.categories,
-    refreshRateLimit,
-  });
-  registerSuggestionsRoutes(app, {
-    llm: deps.llm,
-    transactions: deps.repos.transactions,
-    expenses: deps.repos.expenses,
-    profiles: deps.repos.profiles,
-    summaries: deps.repos.summaries,
-    suggestions: deps.repos.suggestions,
-    agentRuns: deps.repos.agentRuns,
-    categories: deps.repos.categories,
-    logger: app.log,
-    refreshRateLimit,
-  });
+  // AI is a capability the server advertises and the client opts into. It is on
+  // only when a model client was built (i.e. an ANTHROPIC_API_KEY was set).
+  registerCapabilitiesRoute(app, { ai: Boolean(deps.llm) });
+
+  if (deps.llm) {
+    // One budget spanning both refresh routes, deliberately: they draw on the same
+    // paid model, so a per-route limit would let a caller alternate between them
+    // and spend twice the intended ceiling.
+    const refreshLimiter = createRateLimiter({
+      limit: deps.config.REFRESH_RATE_LIMIT,
+      windowMs: deps.config.REFRESH_RATE_LIMIT_WINDOW_SEC * 1000,
+    });
+    const refreshRateLimit = rateLimitByUser(refreshLimiter, "refresh");
+
+    registerProfileRoutes(app, {
+      llm: deps.llm,
+      transactions: deps.repos.transactions,
+      expenses: deps.repos.expenses,
+      profiles: deps.repos.profiles,
+      summaries: deps.repos.summaries,
+      categories: deps.repos.categories,
+      refreshRateLimit,
+    });
+    registerSuggestionsRoutes(app, {
+      llm: deps.llm,
+      transactions: deps.repos.transactions,
+      expenses: deps.repos.expenses,
+      profiles: deps.repos.profiles,
+      summaries: deps.repos.summaries,
+      suggestions: deps.repos.suggestions,
+      agentRuns: deps.repos.agentRuns,
+      categories: deps.repos.categories,
+      logger: app.log,
+      refreshRateLimit,
+    });
+  } else {
+    // No-AI mode: the same paths answer AI_DISABLED (503) instead of 404.
+    registerAiDisabledRoutes(app);
+  }
 
   return app;
 }

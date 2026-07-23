@@ -21,6 +21,16 @@ const appWith = (ping: () => Promise<void>) =>
     repos: unusedRepos,
   });
 
+// No-AI mode: the same wiring, minus the model client.
+const appWithoutAi = () =>
+  buildApp({
+    config: testConfig,
+    db: { ping: async () => {} },
+    auth: stubAuth,
+    llm: undefined,
+    repos: unusedRepos,
+  });
+
 describe("buildApp", () => {
   it("GET /health returns { status: 'ok' } when the DB is reachable", async () => {
     const app = appWith(async () => {});
@@ -47,6 +57,32 @@ describe("buildApp", () => {
     const res = await app.inject({ method: "GET", url: "/nope" });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+    await app.close();
+  });
+
+  it("GET /capabilities reports { ai: true } when a model client is present", async () => {
+    const app = appWith(async () => {});
+    const res = await app.inject({ method: "GET", url: "/capabilities" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ai: true });
+    await app.close();
+  });
+
+  it("GET /capabilities reports { ai: false } in no-AI mode", async () => {
+    const app = appWithoutAi();
+    const res = await app.inject({ method: "GET", url: "/capabilities" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ai: false });
+    await app.close();
+  });
+
+  it("agent routes return AI_DISABLED (503) in no-AI mode", async () => {
+    const app = appWithoutAi();
+    for (const url of ["/profile", "/suggestions"]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ error: { code: "AI_DISABLED" } });
+    }
     await app.close();
   });
 });
