@@ -271,10 +271,86 @@ polish than the rest of the sprint combined.
 
 ---
 
+# Sprint 4 — Deploy + live baseline
+
+Epic: **[SLAI-29]**, tickets **SLAI-30 → 34**. Goal: both repos live behind public URLs, and — the
+part that can't be faked any longer — the **first real `ANTHROPIC_API_KEY` run against the live API**
+with an eval baseline recorded. Backend → **Docker + Railway** (points at the existing Supabase
+Postgres, no new managed DB). Frontend → **Vercel** (no Docker; least-friction path). Deploy-first,
+before the Sprint 5 redesign, because Vercel auto-redeploys every redesign push (zero rework) and it
+surfaces prod issues early.
+
+**Standing caveat closes here.** Through Sprint 3 every agent path was stub-proven only — the
+structured-output and prompt-caching contracts were never exercised live. SLAI live-eval is where
+that stops being true; treat a first-run contract failure as expected, not a surprise.
+
+**Single instance, deliberately.** SLAI-19's refresh job + rate limiter are **per-instance**. Deploy
+at **one instance**; scaling out (moving the limiter/scheduler to shared state) is out of scope and
+tracked for later. Don't design around multi-instance now.
+
+### SLAI-30 · Production build + Dockerfile (backend)
+**Type:** Task · **Labels:** backend, foundation
+Today `build` is `tsc --noEmit` (emits nothing) and `start` is `tsx` over source — there is no
+artifact to ship. Blocks every deploy ticket.
+**Acceptance criteria:**
+- `npm run build` emits real JS; `npm start` runs the **compiled output**, not `tsx`. `prisma
+  generate` runs in the build.
+- Multi-stage `Dockerfile` (deps → build → slim runtime) + `.dockerignore`; image runs the app
+  locally end-to-end against Supabase.
+- `prisma migrate deploy` runs on release (entrypoint/release step), never `migrate dev` in prod.
+- A `/health` route returns 200 only when the DB is reachable.
+- Lockfile regenerated clean (macOS drops the linux `@emnapi` optionals — CI `npm ci` reddens
+  otherwise). Gates green; no `any`.
+
+### SLAI-31 · Deploy backend to Railway
+**Type:** Task · **Labels:** backend, deploy · **Depends on:** SLAI-30
+**Acceptance criteria:**
+- Railway service built from the `Dockerfile`, pointed at the existing Supabase Postgres (no new DB).
+- All secrets (`ANTHROPIC_API_KEY`, Supabase URL/keys, `DATABASE_URL`) read from the **typed env
+  schema**; documented in `.env.example` in the same commit so the parity test stays green.
+- `migrate deploy` runs on release; `/health` green on the public URL.
+- Non-LLM routes smoke-pass live: signup/login, transaction + fixed-expense CRUD, `GET /stats`.
+- Runs at **one instance** (see caveat above).
+
+### SLAI-32 · First live model run + `npm run eval -- --live` baseline
+**Type:** Story · **Labels:** backend, agent, eval · **Depends on:** SLAI-31
+The eval numbers are the CV differentiator — this ticket is the reason the deploy matters. Land it
+carefully.
+**Acceptance criteria:**
+- First real `ANTHROPIC_API_KEY` call against the live API. The stub-only contracts are verified
+  live: structured output via `output_config.format`, prompt caching asserted by
+  `cache_read_input_tokens > 0`, and **no `temperature`/`top_p`/`top_k`** (they 400 on Opus 4.8).
+- Profiling loop + suggestions produce grounded, **cited** output on real seeded data, end-to-end.
+- `npm run eval -- --live` runs green and produces a baseline; the numbers are **recorded in-repo**
+  (eval report committed) — not just observed.
+- SLAI-19 cost guardrails verified against real token usage (a run that would breach the cap is
+  stopped, not merely logged).
+
+### SLAI-33 · Deploy frontend to Vercel + cross-origin wiring
+**Type:** Task · **Labels:** frontend, deploy · **Depends on:** SLAI-31
+**Acceptance criteria:**
+- Vercel project from `spendless-ai-fe`; `NEXT_PUBLIC_API_URL` → the Railway backend.
+- The backend CORS allowlist (SLAI-23, already env-driven) is set to the Vercel origin — **not**
+  hardcoded; the new origin lands in the backend env + `.env.example` together.
+- Production build passes on Vercel; auth + protected routes work against the live backend.
+- The new public env var is documented in the web repo's README / `.env.example`.
+
+### SLAI-34 · Live end-to-end smoke test
+**Type:** Story · **Labels:** frontend, qa · **Depends on:** SLAI-32, SLAI-33
+**Acceptance criteria:**
+- Full flow on prod: signup → log spend + a fixed expense → dashboard stats + profile narrative →
+  a grounded suggestion with its **citation visible** → dismiss/apply.
+- The 429 / `Retry-After` path and the degraded (unresolved-citation) path are each exercised once.
+- The run is captured as a short repeatable checklist in `docs/` so it can be re-run before outreach.
+
+**Deferred to Sprint 5 (redesign):** the polished public README + screenshots as the outreach hook —
+held until the UI is redesigned so the screenshots are of the good UI, not the current layout-only one.
+
+---
+
 # Later sprints (out of scope for now, tracked so the shape is clear)
-- **Sprint 4 — Deploy + writeup**: production build (today `npm start` is `tsx` over source and
-  `build` is `tsc --noEmit`, emitting nothing) → Dockerfile → Fly/Railway/Render + managed Postgres,
-  live URLs, **first live model run + `npm run eval -- --live` baseline**, scheduler wiring the
-  in-process job deferred from SLAI-19 (its rate limiter is per-instance — that stops being a
-  footnote above one instance), README with real eval numbers as an outreach hook.
+- **Sprint 5 — Frontend redesign** (`spendless-ai-fe`): introduce a real design system —
+  **Tailwind + shadcn/ui**, **warm consumer-finance** direction (rounded cards, teal/coral, soft,
+  friendly). Restyle screen-by-screen against the live Vercel deploy. Closes with the polished public
+  README + screenshots deferred from Sprint 4.
 - **Later — Mobile** (Expo) on the same API.
