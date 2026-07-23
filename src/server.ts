@@ -21,12 +21,10 @@ async function main(): Promise<void> {
   if (!config.SUPABASE_URL) {
     throw new Error("SUPABASE_URL is required to verify auth tokens");
   }
-  // Checked here rather than left to the first /profile/refresh: a missing key
-  // is a deployment mistake, and it should stop the process, not one user's
-  // request an hour later.
-  if (!config.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is required to run the profiling agent");
-  }
+  // ANTHROPIC_API_KEY is optional: without it the server starts in no-AI mode —
+  // every money feature works and only the agent routes are gated (see buildApp).
+  // A missing key is a deliberate mode, not a deployment mistake, so it must not
+  // stop the process.
   const pool = createPool(config);
   const { issuer, jwksUrl } = supabaseAuthEndpoints(config.SUPABASE_URL, config.SUPABASE_JWKS_URL);
   const auth = {
@@ -45,20 +43,30 @@ async function main(): Promise<void> {
     warn: (details, message) => sink.logger?.warn(details, message),
     error: (details, message) => sink.logger?.error(details, message),
   };
-  const llm = createAnthropicLlmClient({ apiKey: config.ANTHROPIC_API_KEY, logger: llmLogger });
+  // No key → no model client → no-AI mode. buildApp registers the agent routes to
+  // return AI_DISABLED and reports `{ ai: false }` from /capabilities.
+  const llm = config.ANTHROPIC_API_KEY
+    ? createAnthropicLlmClient({ apiKey: config.ANTHROPIC_API_KEY, logger: llmLogger })
+    : undefined;
 
   const app = buildApp({ config, db: { ping: () => pingPool(pool) }, auth, llm, repos });
   sink.logger = app.log;
+  app.log.info(
+    { aiEnabled: Boolean(llm) },
+    llm ? "AI mode enabled" : "no ANTHROPIC_API_KEY — running in no-AI mode (money features only)",
+  );
 
   // The in-process daily refresh. Opt-in: it is a background spender, so it must
   // not start just because someone ran the server with a real key in their .env.
+  // Needs both the flag and a model client — in no-AI mode there is nothing to run.
   // Sprint 4 turns it on in the deployed environment.
-  const refreshJob = config.DAILY_REFRESH_ENABLED
-    ? startDailyRefreshJob(
-        { llm, ...repos, logger: app.log },
-        { intervalMs: config.DAILY_REFRESH_INTERVAL_MINUTES * 60_000 },
-      )
-    : undefined;
+  const refreshJob =
+    config.DAILY_REFRESH_ENABLED && llm
+      ? startDailyRefreshJob(
+          { llm, ...repos, logger: app.log },
+          { intervalMs: config.DAILY_REFRESH_INTERVAL_MINUTES * 60_000 },
+        )
+      : undefined;
   if (refreshJob) {
     app.log.info(
       { intervalMinutes: config.DAILY_REFRESH_INTERVAL_MINUTES },
